@@ -248,7 +248,7 @@ export default function Layout({ children }) {
               {notificationsOpen && (
                 <>
                   <div
-                    style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+                    style={{ position: 'fixed', inset: 0, zIndex: 1001 }}
                     onClick={() => setNotificationsOpen(false)}
                   />
                   <div
@@ -258,9 +258,9 @@ export default function Layout({ children }) {
                       right: 0,
                       top: 50,
                       width: 320,
-                      zIndex: 999,
+                      zIndex: 1002,
                       padding: 16,
-                      background: 'var(--surface)',
+                      background: 'var(--surface-solid)',
                       boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.4), 0 0 15px rgba(0, 0, 0, 0.15)',
                     }}
                   >
@@ -304,7 +304,7 @@ export default function Layout({ children }) {
             </div>
 
             {/* Chip do Usuário Logado & Menu */}
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative', zIndex: 1001 }}>
               <div
                 className="user-chip"
                 style={{ cursor: 'pointer' }}
@@ -326,7 +326,7 @@ export default function Layout({ children }) {
               {userMenuOpen && (
                 <>
                   <div
-                    style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+                    style={{ position: 'fixed', inset: 0, zIndex: 1001 }}
                     onClick={() => setUserMenuOpen(false)}
                   />
                   <div
@@ -336,9 +336,9 @@ export default function Layout({ children }) {
                       right: 0,
                       top: 52,
                       width: 290,
-                      zIndex: 1000,
+                      zIndex: 1002,
                       padding: 18,
-                      background: 'var(--surface)',
+                      background: 'var(--surface-solid)',
                       border: '1px solid var(--border)',
                       boxShadow: '0 20px 45px -10px rgba(0, 0, 0, 0.45), 0 0 20px rgba(0, 0, 0, 0.2)',
                     }}
