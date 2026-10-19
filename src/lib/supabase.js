@@ -32,6 +32,7 @@ export const evaOsSupabase = createClient(EVA_OS_URL, EVA_OS_ANON, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,
+    storageKey: 'eva_os_session_token',
   },
 });
 
