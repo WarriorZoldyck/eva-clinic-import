@@ -25,17 +25,64 @@ export default function Patients() {
   const [filterTag, setFilterTag] = useState('all');
   const [newModalOpen, setNewModalOpen] = useState(false);
 
-  // Form novo paciente
+  // Form novo paciente (limpo sem valores fantasmas)
   const [name, setName] = useState('');
   const [gender, setGender] = useState('F');
-  const [birth, setBirth] = useState('1994-05-18');
+  const [birth, setBirth] = useState('');
   const [cpf, setCpf] = useState('');
-  const [phone, setPhone] = useState('(11) 9');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [insurance, setInsurance] = useState('Particular');
-  const [allergies, setAllergies] = useState('Nenhuma');
-  const [conditions, setConditions] = useState('Nenhuma');
-  const [complaint, setComplaint] = useState('Consulta de rotina / avaliação');
+  const [allergies, setAllergies] = useState('');
+  const [conditions, setConditions] = useState('');
+  const [complaint, setComplaint] = useState('');
+
+  // Máscara dinâmica de telefone / WhatsApp
+  const formatPhone = (val) => {
+    if (!val) return '';
+    const digits = val.replace(/\D/g, '').slice(0, 11);
+    if (digits.length === 0) return '';
+    if (digits.length <= 2) return `(${digits}`;
+    if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+    if (digits.length <= 10) {
+      return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+    }
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
+  };
+
+  // Máscara de CPF
+  const formatCpf = (val) => {
+    if (!val) return '';
+    const digits = val.replace(/\D/g, '').slice(0, 11);
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+    if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9, 11)}`;
+  };
+
+  // Limpeza completa de todos os campos do formulário (evita "ghosts"/resquícios ao reabrir)
+  const resetForm = () => {
+    setName('');
+    setGender('F');
+    setBirth('');
+    setCpf('');
+    setPhone('');
+    setEmail('');
+    setInsurance('Particular');
+    setAllergies('');
+    setConditions('');
+    setComplaint('');
+  };
+
+  const handleOpenModal = () => {
+    resetForm();
+    setNewModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    resetForm();
+    setNewModalOpen(false);
+  };
 
   // Filtragem
   const filteredPatients = useMemo(() => {
@@ -64,7 +111,7 @@ export default function Patients() {
       id: uid('pt'),
       name: name.trim(),
       gender,
-      birth,
+      birth: birth || '1995-01-01',
       cpf: cpf.trim() || '000.000.000-00',
       phone: phone.trim() || '(11) 90000-0000',
       email: email.trim() || `${name.toLowerCase().split(' ')[0]}@email.com`,
@@ -80,12 +127,13 @@ export default function Patients() {
         smoker: false,
         pregnant: false,
         bleeding: false,
-        complaint: complaint.trim(),
+        complaint: complaint.trim() || 'Avaliação clínica inicial',
         updatedAt: todayISO(),
       },
     };
 
     dispatch({ type: 'ADD_PATIENT', patient: newPatient });
+    resetForm();
     setNewModalOpen(false);
     toast(`Paciente ${newPatient.name} cadastrado com sucesso!`);
     navigate(`/pacientes/${newPatient.id}`);
@@ -104,7 +152,7 @@ export default function Patients() {
         <div className="actions">
           <button
             className="btn btn-primary"
-            onClick={() => setNewModalOpen(true)}
+            onClick={handleOpenModal}
             id="btn-open-new-patient-modal"
           >
             <Plus size={16} />
@@ -290,7 +338,7 @@ export default function Patients() {
 
       {/* Modal de Cadastro de Paciente */}
       {newModalOpen && (
-        <div className="modal-backdrop" onClick={() => setNewModalOpen(false)}>
+        <div className="modal-backdrop" onClick={handleCloseModal}>
           <div className="modal wide" onClick={(e) => e.stopPropagation()}>
             <form onSubmit={handleCreatePatient}>
               <div className="modal-head">
@@ -298,7 +346,7 @@ export default function Patients() {
                 <button
                   type="button"
                   className="btn btn-ghost btn-xs"
-                  onClick={() => setNewModalOpen(false)}
+                  onClick={handleCloseModal}
                 >
                   <X size={16} />
                 </button>
@@ -357,7 +405,8 @@ export default function Patients() {
                       className="input"
                       placeholder="000.000.000-00"
                       value={cpf}
-                      onChange={(e) => setCpf(e.target.value)}
+                      onChange={(e) => setCpf(formatCpf(e.target.value))}
+                      maxLength={14}
                     />
                   </div>
 
@@ -366,9 +415,10 @@ export default function Patients() {
                     <input
                       type="text"
                       className="input"
-                      placeholder="(11) 90000-0000"
+                      placeholder="(00) 00000-0000"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      onChange={(e) => setPhone(formatPhone(e.target.value))}
+                      maxLength={15}
                       required
                     />
                   </div>
@@ -432,7 +482,7 @@ export default function Patients() {
                 <button
                   type="button"
                   className="btn"
-                  onClick={() => setNewModalOpen(false)}
+                  onClick={handleCloseModal}
                 >
                   Cancelar
                 </button>
