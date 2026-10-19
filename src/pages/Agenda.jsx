@@ -196,7 +196,7 @@ export default function Agenda() {
             onChange={(e) => setSelectedProf(e.target.value)}
           >
             <option value="all">Todos os Dentistas</option>
-            {PROFESSIONALS.map((p) => (
+            {state.professionals.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.short}
               </option>
@@ -473,7 +473,7 @@ export default function Agenda() {
                       value={formProfId}
                       onChange={(e) => setFormProfId(e.target.value)}
                     >
-                      {PROFESSIONALS.map((p) => (
+                      {state.professionals.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.name}
                         </option>
