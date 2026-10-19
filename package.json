@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "cad:engine": "uv run --python 3.12 --with numpy,scipy,trimesh,scikit-image python cad_engine/cad_server.py",
     "lint": "oxlint",
     "preview": "vite preview"
   },

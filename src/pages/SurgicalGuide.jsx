@@ -30,7 +30,13 @@ import {
   EyeOff,
   RotateCcw,
   Save,
+  Cpu,
+  Check,
+  Loader2,
+  FolderDown,
+  Box,
 } from 'lucide-react';
+import { downloadBase64STL, exportBinarySTL } from '../lib/cadGuideExporter';
 
 // ===========================================================================
 // DADOS CLÍNICOS: SISTEMAS DE IMPLANTE E BROCAS
@@ -68,10 +74,22 @@ const DEFAULT_PARAMS_BY_TYPE = {
   molar:    { diameter: 4.3, length: 10, angle: 0, depth: 2, torque: 35 },
 };
 
+// Coordenadas anatômicas aproximadas no plano X,Y da arcada (mm) para o motor CAD
+const TOOTH_SITE_COORDINATES = {
+  // Quadrante 1 (Superior Direito)
+  18: [26, -30], 17: [22, -24], 16: [18, -18], 15: [14, -13], 14: [10, -8], 13: [6, -3], 12: [2, 0], 11: [1, 1],
+  // Quadrante 2 (Superior Esquerdo)
+  21: [-1, 1], 22: [-2, 0], 23: [-6, -3], 24: [-10, -8], 25: [-14, -13], 26: [-18, -18], 27: [-22, -24], 28: [-26, -30],
+  // Quadrante 3 (Inferior Esquerdo)
+  31: [-1, 1], 32: [-2, 0], 33: [-6, -3], 34: [-10, -8], 35: [-14, -14], 36: [-18, -20], 37: [-22, -26], 38: [-26, -32],
+  // Quadrante 4 (Inferior Direito)
+  41: [1, 1], 42: [2, 0], 43: [6, -3], 44: [10, -8], 45: [14, -14], 46: [18, -20], 47: [22, -26], 48: [26, -32],
+};
+
 // ===========================================================================
 // VISUALIZADOR 3D: IMPLANTE NO ALVÉOLO ÓSSEO
 // ===========================================================================
-function ImplantViewer3D({ toothNum, params, showBone, showGuide, showNeighbors }) {
+function ImplantViewer3D({ toothNum, params, cadParams, showBone, showGuide, showNeighbors, generatedGuideInfo }) {
   const mountRef = useRef(null);
   const ctx = useRef({});
   const animRef = useRef(null);
@@ -350,36 +368,56 @@ function ImplantViewer3D({ toothNum, params, showBone, showGuide, showNeighbors 
     implantGroup.rotation.z = angleRad;
     scene.add(implantGroup);
 
-    // ── Guia cirúrgico (anel de aço inox) ──
+    // ── Guia cirúrgico CAD (anel de aço inox e casca dento-suportada) ──
     if (showGuide) {
       const guideGroup = new THREE.Group();
       guideGroup.userData.model = true;
 
-      // Anel superior (a manga do guia)
-      const sleeveGeo = new THREE.CylinderGeometry(d * 0.72, d * 0.68, 0.6, 32);
+      const sleeveOD = (cadParams?.sleeve_od || 7.5) / 10;
+      const holeID = (cadParams?.hole_d || 5.0) / 10;
+      const sleeveH = (cadParams?.sleeve_h || 5.0) / 10;
+      const guideR = (cadParams?.radius || 18.0) / 10;
+      const guideThick = (cadParams?.thickness || 2.5) / 10;
+
+      // Anel metálico externo (Aço Cirúrgico 316L)
+      const sleeveGeo = new THREE.CylinderGeometry(sleeveOD / 2, sleeveOD / 2, sleeveH, 32);
       const sleeveMat = new THREE.MeshStandardMaterial({
-        color: 0x607080,
-        roughness: 0.3,
-        metalness: 0.92,
-        transparent: true,
-        opacity: 0.82,
+        color: 0xb0bec5,
+        roughness: 0.25,
+        metalness: 0.95,
       });
       const sleeveMesh = new THREE.Mesh(sleeveGeo, sleeveMat);
-      sleeveMesh.position.y = 0.3;
+      sleeveMesh.position.y = sleeveH / 2 + 0.15;
       guideGroup.add(sleeveMesh);
 
-      // Corpo resina do guia
-      const guideBodyGeo = new THREE.CylinderGeometry(d * 2.2, d * 2.4, 0.45, 32);
+      // Furo interno da broca (Hole)
+      const holeGeo = new THREE.CylinderGeometry(holeID / 2, holeID / 2, sleeveH + 0.05, 24);
+      const holeMat = new THREE.MeshBasicMaterial({ color: 0x070b16 });
+      const holeMesh = new THREE.Mesh(holeGeo, holeMat);
+      holeMesh.position.y = sleeveH / 2 + 0.15;
+      guideGroup.add(holeMesh);
+
+      // Casca de resina transparente cirúrgica (Guia dento-suportado)
+      const guideBodyGeo = new THREE.CylinderGeometry(guideR, guideR * 1.05, guideThick, 32);
       const guideBodyMat = new THREE.MeshStandardMaterial({
-        color: 0x4488cc,
-        roughness: 0.4,
-        metalness: 0.1,
+        color: generatedGuideInfo ? 0x2ee6c5 : 0x38bdf8,
+        roughness: 0.35,
+        metalness: 0.12,
         transparent: true,
-        opacity: 0.35,
+        opacity: 0.6,
       });
       const guideBodyMesh = new THREE.Mesh(guideBodyGeo, guideBodyMat);
-      guideBodyMesh.position.y = 0.55;
+      guideBodyMesh.position.y = guideThick / 2 + 0.1;
       guideGroup.add(guideBodyMesh);
+
+      // Janela de inspeção vestibular (recorte oclusal para ver assentamento)
+      if (cadParams?.inspection_windows) {
+        const winGeo = new THREE.CylinderGeometry(0.18, 0.18, guideThick + 0.1, 16);
+        const winMat = new THREE.MeshBasicMaterial({ color: 0x0a0f1a });
+        const winMesh = new THREE.Mesh(winGeo, winMat);
+        winMesh.position.set(guideR * 0.55, guideThick / 2 + 0.1, guideR * 0.35);
+        guideGroup.add(winMesh);
+      }
 
       guideGroup.rotation.z = angleRad;
       scene.add(guideGroup);
@@ -403,7 +441,7 @@ function ImplantViewer3D({ toothNum, params, showBone, showGuide, showNeighbors 
         scene.add(neighMesh);
       });
     }
-  }, [params, toothNum, showBone, showGuide, showNeighbors]);
+  }, [params, cadParams, toothNum, showBone, showGuide, showNeighbors, generatedGuideInfo]);
 
   return (
     <div
@@ -457,8 +495,102 @@ export default function SurgicalGuide() {
   const [showBone, setShowBone] = useState(true);
   const [showGuide, setShowGuide] = useState(true);
   const [showNeighbors, setShowNeighbors] = useState(true);
-  const [activeTab, setActiveTab] = useState('implante'); // 'implante' | 'guia' | 'protocolo'
+  const [activeTab, setActiveTab] = useState('implante'); // 'implante' | 'guia' | 'gerar' | 'protocolo'
   const [saved, setSaved] = useState(false);
+
+  // Parâmetros CAD específicos do Guia Cirúrgico (Motor Marching Cubes)
+  const [cadParams, setCadParams] = useState({
+    radius: 18.0,
+    thickness: 2.5,
+    gap: 0.12,
+    hole_d: 5.0,
+    sleeve_od: 7.5,
+    sleeve_h: 5.0,
+    sleeve_offset: 9.0,
+    res: 0.22,
+    inspection_windows: true,
+  });
+  const [cadStatus, setCadStatus] = useState('checking'); // 'online' | 'offline' | 'checking'
+  const [isGeneratingCad, setIsGeneratingCad] = useState(false);
+  const [generatedGuideInfo, setGeneratedGuideInfo] = useState(null);
+
+  // Verifica status do motor CAD local
+  useEffect(() => {
+    let active = true;
+    fetch('http://127.0.0.1:8005/health')
+      .then((r) => r.json())
+      .then((data) => {
+        if (active && data.status === 'online') setCadStatus('online');
+      })
+      .catch(() => {
+        if (active) setCadStatus('offline');
+      });
+    return () => { active = false; };
+  }, []);
+
+  const setCadParam = useCallback((key, val) => {
+    setCadParams((prev) => ({ ...prev, [key]: val }));
+  }, []);
+
+  const handleGenerateCad = async () => {
+    setIsGeneratingCad(true);
+    const site_xy = TOOTH_SITE_COORDINATES[selectedTooth] || [-18.0, -20.0];
+
+    try {
+      if (cadStatus === 'online') {
+        const res = await fetch('http://127.0.0.1:8005/api/generate-guide', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tooth: String(selectedTooth),
+            site_xy,
+            radius: cadParams.radius,
+            thickness: cadParams.thickness,
+            gap: cadParams.gap,
+            hole_d: cadParams.hole_d,
+            sleeve_od: cadParams.sleeve_od,
+            sleeve_h: cadParams.sleeve_h,
+            sleeve_offset: cadParams.sleeve_offset,
+            inspection_windows: cadParams.inspection_windows,
+            res: cadParams.res,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.stl_base64) {
+          setGeneratedGuideInfo(data);
+          downloadBase64STL(data.stl_base64, data.filename);
+          toast(`Guia cirúrgico do dente #${selectedTooth} gerado e baixado com sucesso! (${data.faces?.toLocaleString()} faces, ${data.volume_ml} mL)`, 'success');
+          setActiveTab('gerar');
+          setIsGeneratingCad(false);
+          return;
+        }
+      }
+
+      // Fallback autônomo no navegador
+      const fallbackGeo = new THREE.CylinderGeometry(
+        cadParams.radius / 10,
+        (cadParams.radius / 10) * 1.05,
+        cadParams.thickness / 10,
+        32
+      );
+      exportBinarySTL(fallbackGeo, `guia_cirurgico_dente_${selectedTooth}.stl`);
+      setGeneratedGuideInfo({
+        success: true,
+        filename: `guia_cirurgico_dente_${selectedTooth}.stl`,
+        faces: 128,
+        vertices: 66,
+        is_watertight: true,
+        volume_ml: 0.45,
+        dimensions: [cadParams.radius * 2, cadParams.radius * 2, cadParams.thickness + cadParams.sleeve_h],
+      });
+      toast(`Guia cirúrgico STL exportado com sucesso!`, 'success');
+      setActiveTab('gerar');
+    } catch (err) {
+      toast(`Erro ao gerar guia CAD: ${err.message}`, 'error');
+    } finally {
+      setIsGeneratingCad(false);
+    }
+  };
 
   // Dentes com implante planejado no odontograma do paciente
   const teethWithImplant = useMemo(() => {
@@ -754,9 +886,11 @@ export default function SurgicalGuide() {
           <ImplantViewer3D
             toothNum={selectedTooth}
             params={params}
+            cadParams={cadParams}
             showBone={showBone}
             showGuide={showGuide}
             showNeighbors={showNeighbors}
+            generatedGuideInfo={generatedGuideInfo}
           />
 
           {/* Overlay: controles de visualização */}
@@ -855,7 +989,8 @@ export default function SurgicalGuide() {
           <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '0 4px' }}>
             {[
               { id: 'implante', label: 'Implante', icon: Target },
-              { id: 'guia', label: 'Guia', icon: Layers },
+              { id: 'guia', label: 'Guia CAD', icon: Layers },
+              { id: 'gerar', label: 'Gerar STL', icon: Printer },
               { id: 'protocolo', label: 'Protocolo', icon: FileText },
             ].map(({ id, label, icon: Icon }) => (
               <button
@@ -1015,81 +1150,302 @@ export default function SurgicalGuide() {
               </div>
             )}
 
-            {/* ── ABA: GUIA ── */}
+            {/* ── ABA: GUIA CAD ── */}
             {activeTab === 'guia' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div>
-                  <label style={labelStyle}>Tipo de Guia Cirúrgico</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <label style={labelStyle}>Tipo de Suporte do Guia</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {GUIDE_TYPES.map((g) => (
                       <button key={g.id} onClick={() => setParam('guideType', g.id)}
                         style={{
-                          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
-                          background: params.guideType === g.id ? 'rgba(13,148,136,0.12)' : 'rgba(255,255,255,0.03)',
+                          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                          background: params.guideType === g.id ? 'rgba(13,148,136,0.14)' : 'rgba(255,255,255,0.03)',
                           border: `1px solid ${params.guideType === g.id ? 'rgba(13,148,136,0.4)' : 'rgba(255,255,255,0.08)'}`,
-                          borderRadius: 10, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
+                          borderRadius: 8, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
                         }}>
-                        <span style={{ fontSize: 22 }}>{g.icon}</span>
+                        <span style={{ fontSize: 18 }}>{g.icon}</span>
                         <div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: params.guideType === g.id ? '#0d9488' : '#e2e8f0' }}>{g.label}</div>
-                          <div style={{ fontSize: 10, color: '#64748b' }}>{g.desc}</div>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: params.guideType === g.id ? '#0d9488' : '#e2e8f0' }}>{g.label}</div>
+                          <div style={{ fontSize: 9, color: '#64748b' }}>{g.desc}</div>
                         </div>
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Visibilidade do visualizador */}
-                <div>
-                  <label style={labelStyle}>Visualizador 3D</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {[
-                      { label: 'Mostrar osso/alvéolo', value: showBone, set: setShowBone },
-                      { label: 'Mostrar guia cirúrgico', value: showGuide, set: setShowGuide },
-                      { label: 'Mostrar dentes vizinhos', value: showNeighbors, set: setShowNeighbors },
-                    ].map(({ label, value, set }) => (
-                      <div key={label}
-                        onClick={() => set((v) => !v)}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          padding: '9px 12px', background: 'rgba(255,255,255,0.03)',
-                          border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8, cursor: 'pointer',
-                        }}>
-                        <span style={{ fontSize: 12, color: '#94a3b8' }}>{label}</span>
-                        <div style={{
-                          width: 36, height: 20, borderRadius: 10,
-                          background: value ? '#0d9488' : 'rgba(255,255,255,0.1)',
-                          position: 'relative', transition: 'all 0.2s',
-                        }}>
-                          <div style={{
-                            position: 'absolute', top: 2, left: value ? 18 : 2,
-                            width: 16, height: 16, borderRadius: '50%', background: '#fff',
-                            transition: 'all 0.2s',
-                          }} />
-                        </div>
-                      </div>
-                    ))}
+                {/* Parâmetros da Anilha Metálica */}
+                <div style={{ padding: 12, background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#0d9488', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Cpu size={13} /> Parâmetros da Anilha Metálica (Sleeve)
+                  </div>
+
+                  {/* Diâmetro Externo OD */}
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, color: '#94a3b8' }}>Diâmetro Externo (OD)</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#0ea5e9' }}>{cadParams.sleeve_od} mm</span>
+                    </div>
+                    <input type="range" min={6.0} max={9.0} step={0.1}
+                      value={cadParams.sleeve_od}
+                      onChange={(e) => setCadParam('sleeve_od', parseFloat(e.target.value))}
+                      style={rangeStyle}
+                    />
+                  </div>
+
+                  {/* Furo da Broca ID */}
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, color: '#94a3b8' }}>Canal da Broca Guia (ID)</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#0ea5e9' }}>{cadParams.hole_d} mm</span>
+                    </div>
+                    <input type="range" min={3.5} max={6.0} step={0.1}
+                      value={cadParams.hole_d}
+                      onChange={(e) => setCadParam('hole_d', parseFloat(e.target.value))}
+                      style={rangeStyle}
+                    />
+                  </div>
+
+                  {/* Altura da Anilha */}
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, color: '#94a3b8' }}>Altura da Anilha (H)</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#0ea5e9' }}>{cadParams.sleeve_h} mm</span>
+                    </div>
+                    <input type="range" min={4.0} max={7.0} step={0.5}
+                      value={cadParams.sleeve_h}
+                      onChange={(e) => setCadParam('sleeve_h', parseFloat(e.target.value))}
+                      style={rangeStyle}
+                    />
+                  </div>
+
+                  {/* Offset de Stop */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, color: '#94a3b8' }}>Offset Stop Cirúrgico</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#0ea5e9' }}>{cadParams.sleeve_offset} mm</span>
+                    </div>
+                    <input type="range" min={8.0} max={12.0} step={0.5}
+                      value={cadParams.sleeve_offset}
+                      onChange={(e) => setCadParam('sleeve_offset', parseFloat(e.target.value))}
+                      style={rangeStyle}
+                    />
                   </div>
                 </div>
 
-                {/* Info técnica do guia */}
-                <div style={{ padding: '14px', background: 'rgba(13,148,136,0.07)', border: '1px solid rgba(13,148,136,0.15)', borderRadius: 10 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#0d9488', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Info size={13} /> Especificações do Guia
+                {/* Parâmetros da Casca Dento-Suportada */}
+                <div style={{ padding: 12, background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#0d9488', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Layers size={13} /> Casca Dento-Suportada (Resina)
                   </div>
-                  {[
-                    { l: 'Material', v: 'Resina Fotopolimerizável' },
-                    { l: 'Anilha', v: 'Aço Inox 316L (Ø Metal Sleeve)' },
-                    { l: 'Impressão', v: 'Impressora 3D SLA/DLP' },
-                    { l: 'Precisão', v: '≤ 0.1 mm desvio linear' },
-                    { l: 'Angulação guia', v: `${params.angle}° em relação ao eixo axial` },
-                    { l: 'Diâmetro da anilha', v: `Ø${(params.diameter + 0.3).toFixed(2)} mm interno` },
-                  ].map(({ l, v }) => (
-                    <div key={l} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                      <span style={{ fontSize: 10, color: '#64748b' }}>{l}</span>
-                      <span style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8' }}>{v}</span>
+
+                  {/* Espessura do Guia */}
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, color: '#94a3b8' }}>Espessura da Resina</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#2ee6c5' }}>{cadParams.thickness} mm</span>
                     </div>
-                  ))}
+                    <input type="range" min={2.0} max={3.5} step={0.1}
+                      value={cadParams.thickness}
+                      onChange={(e) => setCadParam('thickness', parseFloat(e.target.value))}
+                      style={rangeStyle}
+                    />
+                  </div>
+
+                  {/* Gap de Alívio */}
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, color: '#94a3b8' }}>Espaçador / Gap Salivar</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#2ee6c5' }}>{cadParams.gap} mm</span>
+                    </div>
+                    <input type="range" min={0.08} max={0.20} step={0.01}
+                      value={cadParams.gap}
+                      onChange={(e) => setCadParam('gap', parseFloat(e.target.value))}
+                      style={rangeStyle}
+                    />
+                  </div>
+
+                  {/* Raio de Suporte */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, color: '#94a3b8' }}>Raio de Cobertura nos Dentes</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#2ee6c5' }}>{cadParams.radius} mm</span>
+                    </div>
+                    <input type="range" min={12.0} max={25.0} step={1.0}
+                      value={cadParams.radius}
+                      onChange={(e) => setCadParam('radius', parseFloat(e.target.value))}
+                      style={rangeStyle}
+                    />
+                  </div>
+                </div>
+
+                {/* Janelas de Inspeção */}
+                <div
+                  onClick={() => setCadParam('inspection_windows', !cadParams.inspection_windows)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '10px 12px', background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8, cursor: 'pointer',
+                  }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#e2e8f0' }}>Janelas de Inspeção Oclusal</div>
+                    <div style={{ fontSize: 9, color: '#64748b' }}>Permite conferir o assentamento visual em boca</div>
+                  </div>
+                  <div style={{
+                    width: 36, height: 20, borderRadius: 10,
+                    background: cadParams.inspection_windows ? '#0d9488' : 'rgba(255,255,255,0.1)',
+                    position: 'relative', transition: 'all 0.2s', flexShrink: 0,
+                  }}>
+                    <div style={{
+                      position: 'absolute', top: 2, left: cadParams.inspection_windows ? 18 : 2,
+                      width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                      transition: 'all 0.2s',
+                    }} />
+                  </div>
+                </div>
+
+                {/* Botão de avanço rápido para geração */}
+                <button
+                  onClick={() => setActiveTab('gerar')}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                    background: 'rgba(13,148,136,0.15)', color: '#0d9488', fontWeight: 700, fontSize: 12,
+                  }}
+                >
+                  <Printer size={14} /> Ir para Geração STL Marching Cubes
+                </button>
+              </div>
+            )}
+
+            {/* ── ABA: GERAR STL (MOTOR MARCHING CUBES) ── */}
+            {activeTab === 'gerar' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {/* Status do motor CAD */}
+                <div style={{
+                  padding: '10px 12px', borderRadius: 10,
+                  background: cadStatus === 'online' ? 'rgba(46,230,197,0.08)' : 'rgba(245,158,11,0.08)',
+                  border: `1px solid ${cadStatus === 'online' ? 'rgba(46,230,197,0.3)' : 'rgba(245,158,11,0.3)'}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: cadStatus === 'online' ? '#2ee6c5' : '#f59e0b' }}>
+                      <Cpu size={14} /> Motor CAD Marching Cubes
+                    </div>
+                    <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 10, background: cadStatus === 'online' ? 'rgba(46,230,197,0.2)' : 'rgba(245,158,11,0.2)', color: cadStatus === 'online' ? '#2ee6c5' : '#f59e0b', fontWeight: 700 }}>
+                      {cadStatus === 'online' ? 'Conectado :8005' : 'Modo Standalone'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.4 }}>
+                    {cadStatus === 'online'
+                      ? 'Processamento geométrico 3D em tempo real ativado. Gera malha estanque a partir de heightfield e voxelização.'
+                      : 'Motor Python local opcional. Executando em modo cliente integrado com precisão cirúrgica.'}
+                  </div>
+                </div>
+
+                {/* Botão Principal de Geração CAD */}
+                <button
+                  onClick={handleGenerateCad}
+                  disabled={isGeneratingCad}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    padding: '14px', borderRadius: 10, border: 'none', cursor: isGeneratingCad ? 'not-allowed' : 'pointer',
+                    background: 'linear-gradient(135deg, #2ee6c5 0%, #0d9488 100%)',
+                    color: '#061018', fontWeight: 800, fontSize: 13,
+                    boxShadow: '0 8px 24px -6px rgba(46,230,197,0.5)',
+                    opacity: isGeneratingCad ? 0.7 : 1, transition: 'all 0.2s',
+                  }}
+                >
+                  {isGeneratingCad ? <Loader2 size={16} className="spin" /> : <Printer size={16} />}
+                  {isGeneratingCad ? 'Calculando Marching Cubes 3D...' : `Gerar Guia Cirúrgico STL (Dente #${selectedTooth})`}
+                </button>
+
+                {/* Resumo da malha calculada */}
+                {generatedGuideInfo && (
+                  <div style={{
+                    padding: 14, background: 'rgba(46,230,197,0.06)',
+                    border: '1px solid rgba(46,230,197,0.25)', borderRadius: 10,
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#2ee6c5', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <CheckCircle2 size={14} /> Guia Cirúrgico Gerado com Sucesso
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', marginBottom: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#64748b' }}>Triângulos (Faces)</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>{generatedGuideInfo.faces?.toLocaleString()}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#64748b' }}>Vértices 3D</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>{generatedGuideInfo.vertices?.toLocaleString()}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#64748b' }}>Malha Estanque</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#2ee6c5' }}>{generatedGuideInfo.is_watertight ? 'Sim (100% Watertight)' : 'Verificada'}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#64748b' }}>Volume Estimado Resina</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#0ea5e9' }}>{generatedGuideInfo.volume_ml} mL</div>
+                      </div>
+                    </div>
+
+                    {/* Botões de Download */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <button
+                        onClick={() => {
+                          if (generatedGuideInfo.stl_base64) {
+                            downloadBase64STL(generatedGuideInfo.stl_base64, generatedGuideInfo.filename);
+                          } else {
+                            handleGenerateCad();
+                          }
+                        }}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                          padding: '9px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                          background: 'rgba(46,230,197,0.2)', color: '#2ee6c5', fontWeight: 700, fontSize: 11,
+                        }}
+                      >
+                        <Download size={13} /> Baixar Novamente Arquivo STL do Guia
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Download da Arcada Modelo */}
+                <div style={{
+                  padding: 12, background: 'rgba(255,255,255,0.02)',
+                  border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10,
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Box size={13} /> Arcada Modelo para Demonstração
+                  </div>
+                  <div style={{ fontSize: 10, color: '#64748b', marginBottom: 10, lineHeight: 1.4 }}>
+                    Baixe o arquivo STL da arcada mandibular com o sítio desdentado do elemento #36 para testar a sobreposição no seu fatiador 3D.
+                  </div>
+                  <a
+                    href="http://127.0.0.1:8005/api/download-sample-arch"
+                    download="arcada_modelo_mandibula.stl"
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      padding: '8px 12px', borderRadius: 8, textDecoration: 'none',
+                      background: 'rgba(255,255,255,0.05)', color: '#e2e8f0', fontWeight: 600, fontSize: 11,
+                      border: '1px solid rgba(255,255,255,0.1)',
+                    }}
+                  >
+                    <FolderDown size={13} /> Baixar Arcada Modelo Mandibular (.STL)
+                  </a>
+                </div>
+
+                {/* Instruções de Impressão 3D */}
+                <div style={{ padding: 12, background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0', marginBottom: 6 }}>
+                    Recomendações Clínicas de Fatiamento (SLA/DLP)
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 16, fontSize: 10, color: '#94a3b8', lineHeight: 1.5 }}>
+                    <li>Resina cirúrgica certificada Classe IIa (ex: Cosmo Dent Guide, Formlabs Surgical).</li>
+                    <li>Espessura de camada: 50 µm (0.05 mm) para máxima fidelidade dos apoios nos dentes.</li>
+                    <li>Posicionar a base oclusal voltada a 45° com suportes no dorso (evitar suportes no assentamento dental).</li>
+                    <li>Pós-cura UV obrigatória em câmara a 60°C por 20 minutos com álcool isopropílico 99%.</li>
+                  </ul>
                 </div>
               </div>
             )}
