@@ -13,6 +13,7 @@ import Inventory from './pages/Inventory';
 import AssistantEVA from './pages/AssistantEVA';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import SurgicalGuide from './pages/SurgicalGuide';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth();
@@ -94,6 +95,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <AssistantEVA />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/guia-cirurgico"
+              element={
+                <ProtectedRoute>
+                  <SurgicalGuide />
                 </ProtectedRoute>
               }
             />

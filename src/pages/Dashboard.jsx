@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../store/AppContext';
+import { useAuth } from '../store/AuthContext';
 import { BRL, todayISO, fmtDate } from '../lib/utils';
 import {
   TrendingUp,
@@ -16,6 +17,8 @@ import {
   ChevronRight,
   Cake,
   Activity,
+  PlusCircle,
+  Database,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -32,7 +35,8 @@ import {
 } from 'recharts';
 
 export default function Dashboard() {
-  const { state, dispatch, toast } = useApp();
+  const { state, dispatch, toast, isCleanSpace } = useApp();
+  const { currentUser } = useAuth();
   const navigate = useNavigate();
   const today = todayISO();
 
@@ -122,9 +126,9 @@ export default function Dashboard() {
       {/* Cabeçalho */}
       <div className="page-head">
         <div>
-          <h1>Painel Geral da Clínica</h1>
+          <h1>{currentUser?.clinicName || 'Painel Geral da Clínica'}</h1>
           <p>
-            Bem-vinda, <b>Dra. Eva Martins</b>. Aqui está a visão consolidada de atendimentos, odontograma e faturamento.
+            Bem-vindo(a), <b>{currentUser?.name || 'Cirurgião-Dentista'}</b>. Visão consolidada de atendimentos, odontograma e faturamento.
           </p>
         </div>
 
@@ -147,6 +151,68 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {/* Banner de Boas-Vindas para Espaço Zerado */}
+      {isCleanSpace && (
+        <div
+          className="card mb"
+          style={{
+            background: 'linear-gradient(135deg, rgba(46, 230, 197, 0.12) 0%, rgba(124, 92, 255, 0.15) 100%)',
+            border: '1px solid rgba(46, 230, 197, 0.3)',
+            padding: '20px 24px',
+            borderRadius: 14,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 20,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 12,
+                background: 'var(--brand-grad)',
+                display: 'grid',
+                placeItems: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Sparkles size={24} color="#0d1117" />
+            </div>
+            <div>
+              <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#fff' }}>
+                Espaço Exclusivo Configurado com Sucesso!
+              </h3>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-dim)' }}>
+                Sua clínica está zerada e pronta para o atendimento diário. Cadastre seu primeiro paciente ou agende uma consulta.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              className="btn btn-primary"
+              onClick={() => navigate('/pacientes')}
+              style={{ fontSize: 13 }}
+            >
+              <PlusCircle size={15} /> Cadastrar Paciente
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                dispatch({ type: 'LOAD_DEMO_SEED' });
+                toast('Dados de demonstração carregados para exploração!');
+              }}
+              style={{ fontSize: 13 }}
+            >
+              <Database size={15} /> Carregar Exemplo Demo
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Grid de 4 KPIs Executivos */}
       <div className="grid g-4 mb">

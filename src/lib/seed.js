@@ -279,5 +279,6 @@ export function createSeed() {
     inventory: INVENTORY.map((i) => ({ ...i })),
     evolutions,
     documents,
+    surgicalGuides: [],
   };
 }

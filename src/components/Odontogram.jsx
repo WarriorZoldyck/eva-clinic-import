@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../store/AppContext';
+import { useNavigate } from 'react-router-dom';
 import {
   PERMANENT,
   DECIDUOUS,
@@ -28,6 +29,7 @@ import {
   ChevronRight,
   ShieldAlert,
   Box,
+  Target,
 } from 'lucide-react';
 
 // ============================================================================
@@ -689,6 +691,7 @@ function AnatomicalToothProfileView({ toothNum, condition, selectedFaces = [] })
 // ============================================================================
 export default function Odontogram({ patientId, onOpen3D }) {
   const { state, dispatch, toast } = useApp();
+  const navigate = useNavigate();
 
   const [dentition, setDentition] = useState('permanent'); // 'permanent' | 'deciduous'
   const [activeCondition, setActiveCondition] = useState('carie'); // 'higido' | 'carie' | 'restauracao' | 'tratamento' | 'ausente' | 'extracao' | 'outros'
@@ -1249,6 +1252,27 @@ export default function Odontogram({ patientId, onOpen3D }) {
               <Plus size={14} /> Adicionar ao Plano de Tratamento
             </button>
           </div>
+
+          {/* Botão de Guia Cirúrgico (aparece quando dente tem implante ou está ausente) */}
+          {(patientOdonto[selectedTooth] || []).some((e) => e.condition === 'implante' || e.condition === 'ausente') && (
+            <div className="detail-card-item" style={{ borderBottom: 'none', paddingBottom: 0, paddingTop: 12 }}>
+              <button
+                onClick={() => navigate(`/guia-cirurgico?patient=${patient?.id || ''}&tooth=${selectedTooth}`)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  width: '100%', padding: '11px 14px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                  background: 'linear-gradient(135deg, #0d9488, #0ea5e9)',
+                  color: '#fff', fontWeight: 700, fontSize: 13, transition: 'all 0.2s',
+                }}
+              >
+                <Target size={16} />
+                Planejar Guia Cirúrgico 3D
+              </button>
+              <div style={{ fontSize: 10, color: '#64748b', textAlign: 'center', marginTop: 6 }}>
+                Dente #{selectedTooth} marcado para implante
+              </div>
+            </div>
+          )}
         </aside>
       </div>
 

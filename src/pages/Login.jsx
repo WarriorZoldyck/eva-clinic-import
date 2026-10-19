@@ -13,11 +13,13 @@ import {
   ShieldCheck,
   CheckCircle2,
   Database,
+  KeyRound,
+  ExternalLink,
 } from 'lucide-react';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login, adminCredentials } = useAuth();
+  const { login } = useAuth();
   const { toast } = useApp();
 
   const [identifier, setIdentifier] = useState('admin');
@@ -26,30 +28,57 @@ export default function Login() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const inputStyle = {
+    background: 'rgba(255, 255, 255, 0.08)',
+    border: '1px solid rgba(255, 255, 255, 0.18)',
+    color: '#ffffff',
+    borderRadius: 11,
+    height: 42,
+    fontSize: 13,
+    paddingLeft: 38,
+    width: '100%',
+    outline: 'none',
+    transition: 'all 0.2s ease',
+  };
+
+  const labelStyle = {
+    fontSize: 12,
+    fontWeight: 600,
+    color: '#e2e8f0',
+    marginBottom: 6,
+    display: 'block',
+    letterSpacing: '0.01em',
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    setTimeout(() => {
-      const res = login(identifier, password);
+    try {
+      const res = await login(identifier, password);
       setIsLoading(false);
 
       if (res.success) {
-        toast(`Bem-vinda de volta, ${res.user.name}!`);
+        toast(`Bem-vindo(a) de volta, ${res.user.name}!`);
         navigate('/');
       } else {
-        setError(res.error);
+        setError(res.error || 'Credenciais inválidas.');
       }
-    }, 400);
+    } catch {
+      setIsLoading(false);
+      setError('Erro ao processar login. Tente novamente.');
+    }
   };
 
-  const handleQuickAdmin = () => {
+  const handleQuickAdmin = async () => {
     setIdentifier('admin');
     setPassword('1234');
-    const res = login('admin', '1234');
+    setIsLoading(true);
+    const res = await login('admin', '1234');
+    setIsLoading(false);
     if (res.success) {
-      toast('Acesso concedido como Administrador da Clínica!');
+      toast('Acesso concedido como Administrador da Clínica (Modo Demonstração)!');
       navigate('/');
     }
   };
@@ -60,9 +89,9 @@ export default function Login() {
         minHeight: '100vh',
         display: 'grid',
         placeItems: 'center',
-        padding: 24,
+        padding: '32px 20px',
         position: 'relative',
-        background: 'radial-gradient(ellipse at 50% 20%, #111a38 0%, #070b16 70%)',
+        background: 'radial-gradient(ellipse at 50% 20%, #111a38 0%, #070b16 75%)',
       }}
     >
       {/* Luzes de Fundo Estilo Estúdio */}
@@ -87,7 +116,7 @@ export default function Login() {
           borderRadius: '50%',
           background: 'rgba(124, 92, 255, 0.15)',
           filter: 'blur(100px)',
-          bottom: '10%',
+          top: '40%',
           right: '20%',
           pointerEvents: 'none',
         }}
@@ -97,128 +126,177 @@ export default function Login() {
         className="card"
         style={{
           width: '100%',
-          maxWidth: 440,
+          maxWidth: 460,
           padding: 36,
-          background: 'rgba(15, 21, 40, 0.75)',
+          background: 'rgba(15, 21, 40, 0.88)',
           backdropFilter: 'blur(24px)',
-          border: '1px solid rgba(255, 255, 255, 0.12)',
-          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.7), 0 0 30px rgba(46, 230, 197, 0.15)',
+          border: '1px solid rgba(255, 255, 255, 0.14)',
+          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 35px rgba(46, 230, 197, 0.18)',
           position: 'relative',
           zIndex: 2,
         }}
       >
-        {/* Marca Eva Clinic */}
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+        {/* Topo / Logo */}
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div
             style={{
-              width: 56,
-              height: 56,
-              borderRadius: 18,
+              width: 54,
+              height: 54,
+              borderRadius: 16,
               background: 'var(--brand-grad)',
               display: 'grid',
               placeItems: 'center',
-              margin: '0 auto 16px',
-              boxShadow: '0 10px 30px -6px rgba(46, 230, 197, 0.5)',
+              margin: '0 auto 14px',
+              boxShadow: '0 8px 25px rgba(46, 230, 197, 0.35)',
             }}
           >
-            <Stethoscope size={28} color="#061018" />
+            <Stethoscope size={28} color="#0d1117" strokeWidth={2.4} />
           </div>
 
-          <h2 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>
-            Eva<span style={{ color: 'var(--brand)' }}>Clinic</span> Pro
-          </h2>
-          <p className="small faint" style={{ marginTop: 4 }}>
-            Software de Gestão Odontológica & Prontuário 3D
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <span style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.02em', color: '#ffffff' }}>
+              Eva Clinic
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                background: 'rgba(46, 230, 197, 0.18)',
+                color: '#2ee6c5',
+                padding: '2px 8px',
+                borderRadius: 99,
+                border: '1px solid rgba(46, 230, 197, 0.35)',
+                letterSpacing: '0.04em',
+              }}
+            >
+              PRO
+            </span>
+          </div>
+
+          <p style={{ fontSize: 13, color: '#94a3b8', margin: 0 }}>
+            Gestão odontológica avançada & ecossistema Eva OS
           </p>
         </div>
 
-        {/* Badge de Sincronização Eva OS */}
+        {/* Banner Assinante Eva OS */}
         <div
-          className="row between mb"
           style={{
-            background: 'rgba(46, 230, 197, 0.08)',
-            border: '1px solid rgba(46, 230, 197, 0.25)',
-            padding: '8px 12px',
-            borderRadius: 10,
-            fontSize: 12,
+            background: 'linear-gradient(135deg, rgba(124, 92, 255, 0.18) 0%, rgba(46, 230, 197, 0.12) 100%)',
+            border: '1px solid rgba(124, 92, 255, 0.35)',
+            borderRadius: 12,
+            padding: '14px 16px',
+            marginBottom: 20,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
           }}
         >
-          <div className="row" style={{ gap: 6 }}>
-            <Database size={14} color="var(--brand)" />
-            <span style={{ color: 'var(--text-2)' }}>Ecossistema Eva OS & Supabase</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Sparkles size={20} color="#a78bfa" style={{ flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#ffffff' }}>
+                Já é assinante do Eva OS?
+              </div>
+              <div style={{ fontSize: 11, color: '#cbd5e1' }}>
+                Seu acesso ao Eva Clinic é 100% incluso.
+              </div>
+            </div>
           </div>
-          <span className="badge b-ok small" style={{ fontSize: 10, padding: '2px 6px' }}>
-            Sincronizado
-          </span>
+          <Link
+            to="/cadastro"
+            className="btn btn-secondary"
+            style={{
+              fontSize: 11,
+              padding: '7px 13px',
+              whiteSpace: 'nowrap',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              background: 'rgba(255, 255, 255, 0.1)',
+              color: '#ffffff',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+            }}
+          >
+            Ativar Grátis <ArrowRight size={12} />
+          </Link>
         </div>
 
         {error && (
           <div
             style={{
-              padding: '10px 14px',
-              background: 'var(--danger-soft)',
-              color: 'var(--danger)',
+              padding: '12px 14px',
               borderRadius: 10,
-              fontSize: 12.5,
-              fontWeight: 600,
-              marginBottom: 16,
+              background: 'rgba(239, 68, 68, 0.18)',
+              border: '1px solid rgba(239, 68, 68, 0.35)',
+              color: '#fca5a5',
+              fontSize: 13,
+              marginBottom: 18,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
             }}
           >
-            {error}
+            <ShieldCheck size={18} color="#f87171" />
+            <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="col" style={{ gap: 16 }}>
-          <div className="field">
-            <label>Usuário ou E-mail</label>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={labelStyle}>
+              E-mail ou Usuário do Eva Clinic
+            </label>
             <div style={{ position: 'relative' }}>
-              <input
-                type="text"
-                className="input"
-                style={{ paddingLeft: 38 }}
-                placeholder="Ex: admin"
-                value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
-                required
-                id="login-username"
-              />
               <User
                 size={16}
-                color="var(--text-3)"
-                style={{ position: 'absolute', left: 12, top: 12 }}
+                color="#94a3b8"
+                style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }}
+              />
+              <input
+                type="text"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                placeholder="ex: admin ou seu@email.com"
+                style={inputStyle}
+                required
               />
             </div>
           </div>
 
-          <div className="field">
-            <div className="row between">
-              <label>Senha de Acesso</label>
-              <span className="small faint mono">Padrão: 1234</span>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <label style={labelStyle}>
+                Senha do Eva Clinic
+              </label>
             </div>
             <div style={{ position: 'relative' }}>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                className="input"
-                style={{ paddingLeft: 38, paddingRight: 38 }}
-                placeholder="••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                id="login-password"
-              />
               <Lock
                 size={16}
-                color="var(--text-3)"
-                style={{ position: 'absolute', left: 12, top: 12 }}
+                color="#94a3b8"
+                style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }}
+              />
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Digite sua senha"
+                style={{ ...inputStyle, paddingRight: 40 }}
+                required
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 style={{
                   position: 'absolute',
-                  right: 12,
-                  top: 11,
-                  color: 'var(--text-3)',
+                  right: 10,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  padding: 4,
                 }}
               >
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -229,48 +307,96 @@ export default function Login() {
           <button
             type="submit"
             className="btn btn-primary"
-            style={{ width: '100%', height: 44, marginTop: 6 }}
             disabled={isLoading}
-            id="btn-login-submit"
-          >
-            {isLoading ? 'Autenticando...' : 'Acessar Plataforma'}
-            <ArrowRight size={16} />
-          </button>
-
-          {/* Atalho de 1 Clique para Admin */}
-          <button
-            type="button"
-            className="btn btn-sm btn-ghost"
             style={{
               width: '100%',
-              border: '1px dashed var(--border-strong)',
-              background: 'var(--surface)',
+              justifyContent: 'center',
+              padding: '13px 20px',
+              fontSize: 14,
+              fontWeight: 700,
+              marginTop: 6,
+              background: 'linear-gradient(135deg, #2ee6c5 0%, #7c5cff 100%)',
+              color: '#070b16',
+              border: 'none',
+              boxShadow: '0 6px 20px rgba(46, 230, 197, 0.35)',
             }}
-            onClick={handleQuickAdmin}
-            id="btn-quick-admin-login"
           >
-            <Sparkles size={14} color="var(--brand)" />
-            Acesso Rápido Admin (admin / 1234)
+            {isLoading ? 'Entrando...' : 'Acessar Eva Clinic'}
+            <ArrowRight size={16} strokeWidth={2.4} />
           </button>
         </form>
 
+        {/* Separador */}
         <div
           style={{
-            borderTop: '1px solid var(--border)',
-            paddingTop: 18,
-            marginTop: 22,
-            textAlign: 'center',
-            fontSize: 13,
-            color: 'var(--text-2)',
+            display: 'flex',
+            alignItems: 'center',
+            margin: '22px 0 16px',
+            gap: 12,
+            color: '#94a3b8',
+            fontSize: 11,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
           }}
         >
-          Ainda não tem conta para sua clínica?{' '}
-          <Link
-            to="/cadastro"
-            style={{ color: 'var(--brand)', fontWeight: 700, textDecoration: 'underline' }}
-            id="link-go-to-register"
-          >
-            Criar conta
+          <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.12)' }} />
+          <span>ou teste rápido</span>
+          <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.12)' }} />
+        </div>
+
+        {/* Botão Acesso Rápido Admin Demo */}
+        <button
+          type="button"
+          onClick={handleQuickAdmin}
+          disabled={isLoading}
+          className="btn"
+          style={{
+            width: '100%',
+            justifyContent: 'center',
+            background: 'rgba(255, 255, 255, 0.07)',
+            border: '1px solid rgba(255, 255, 255, 0.16)',
+            color: '#ffffff',
+            fontSize: 13,
+            fontWeight: 600,
+            padding: '11px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <KeyRound size={16} color="#2ee6c5" />
+          Acesso Rápido Admin Demo (1234)
+        </button>
+
+        {/* Rodapé e status do Supabase */}
+        <div
+          style={{
+            marginTop: 24,
+            paddingTop: 16,
+            borderTop: '1px solid rgba(255,255,255,0.1)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: 12,
+            color: '#94a3b8',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: '#2ee6c5',
+                boxShadow: '0 0 8px #2ee6c5',
+                display: 'inline-block',
+              }}
+            />
+            <span style={{ color: '#cbd5e1' }}>Supabase Eva OS Conectado</span>
+          </div>
+
+          <Link to="/cadastro" style={{ color: '#2ee6c5', textDecoration: 'none', fontWeight: 700 }}>
+            Criar conta →
           </Link>
         </div>
       </div>

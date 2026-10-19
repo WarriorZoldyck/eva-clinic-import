@@ -26,6 +26,7 @@ import {
   LogOut,
   ShieldCheck,
   Building,
+  Target,
 } from 'lucide-react';
 import { BRL } from '../lib/utils';
 
@@ -120,6 +121,17 @@ export default function Layout({ children }) {
         >
           <FileSpreadsheet size={18} />
           <span>Planos & Orçamentos</span>
+        </NavLink>
+
+        <NavLink
+          to="/guia-cirurgico"
+          className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+          onClick={() => setMobileOpen(false)}
+          style={({ isActive }) => isActive ? {} : {}}
+        >
+          <Target size={18} />
+          <span>Guia Cirúrgico</span>
+          <span style={{ fontSize: 9, padding: '2px 5px', borderRadius: 4, background: 'rgba(13,148,136,0.15)', color: '#0d9488', fontWeight: 700, letterSpacing: '0.03em', marginLeft: 'auto', flexShrink: 0 }}>3D</span>
         </NavLink>
 
         <div className="nav-section">Gestão</div>

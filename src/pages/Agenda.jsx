@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../store/AppContext';
 import { todayISO, addDays, fmtDate, fmtLongDate, timeToMin, minToTime, uid } from '../lib/utils';
 import { APPT_STATUS, PROCEDURES } from '../lib/dental';
-import { PROFESSIONALS, CHAIRS } from '../lib/seed';
+import { CHAIRS } from '../lib/seed';
 import {
   Calendar as CalIcon,
   ChevronLeft,
@@ -34,7 +34,7 @@ export default function Agenda() {
 
   // Formulário do novo agendamento
   const [formPatientId, setFormPatientId] = useState('');
-  const [formProfId, setFormProfId] = useState('pr1');
+  const [formProfId, setFormProfId] = useState(state.professionals[0]?.id || 'pr1');
   const [formChair, setFormChair] = useState('Cadeira 1');
   const [formProc, setFormProc] = useState(PROCEDURES[0].name);
   const [formStart, setFormStart] = useState('09:00');
@@ -59,14 +59,14 @@ export default function Agenda() {
         sub: 'Equipamento e suporte',
       }));
     } else {
-      return PROFESSIONALS.filter((p) => selectedProf === 'all' || p.id === selectedProf).map((p) => ({
+      return state.professionals.filter((p) => selectedProf === 'all' || p.id === selectedProf).map((p) => ({
         id: p.id,
         title: p.short,
         sub: p.specialty,
         color: p.color,
       }));
     }
-  }, [viewType, selectedChair, selectedProf]);
+  }, [viewType, selectedChair, selectedProf, state.professionals]);
 
   // Horários de 08:00 às 19:00 (intervalos de 30 min)
   const slots = useMemo(() => {
