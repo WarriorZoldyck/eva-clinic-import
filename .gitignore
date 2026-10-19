@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 *.stl
 cad_engine/*.stl
+__pycache__/
+*.pyc
