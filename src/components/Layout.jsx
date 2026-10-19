@@ -246,52 +246,60 @@ export default function Layout({ children }) {
               </button>
 
               {notificationsOpen && (
-                <div
-                  className="card"
-                  style={{
-                    position: 'absolute',
-                    right: 0,
-                    top: 50,
-                    width: 320,
-                    zIndex: 80,
-                    padding: 16,
-                  }}
-                >
-                  <div className="card-head" style={{ marginBottom: 12 }}>
-                    <h3>Notificações Clínicas</h3>
-                    <button
-                      className="btn btn-ghost btn-xs"
-                      onClick={() => setNotificationsOpen(false)}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
+                <>
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+                    onClick={() => setNotificationsOpen(false)}
+                  />
+                  <div
+                    className="card"
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      top: 50,
+                      width: 320,
+                      zIndex: 999,
+                      padding: 16,
+                      background: 'var(--surface)',
+                      boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.4), 0 0 15px rgba(0, 0, 0, 0.15)',
+                    }}
+                  >
+                    <div className="card-head" style={{ marginBottom: 12 }}>
+                      <h3>Notificações Clínicas</h3>
+                      <button
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => setNotificationsOpen(false)}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
 
-                  <div className="col" style={{ gap: 8, maxHeight: 300, overflowY: 'auto' }}>
-                    {lowStock.map((item) => (
+                    <div className="col" style={{ gap: 8, maxHeight: 300, overflowY: 'auto' }}>
+                      {lowStock.map((item) => (
+                        <div
+                          key={item.id}
+                          className="list-item"
+                          style={{ background: 'var(--surface-2)', padding: 8 }}
+                        >
+                          <AlertCircle size={16} color="var(--danger)" />
+                          <div style={{ fontSize: 12 }}>
+                            <b>Estoque Baixo:</b> {item.name} ({item.qty} {item.unit})
+                          </div>
+                        </div>
+                      ))}
+
                       <div
-                        key={item.id}
                         className="list-item"
                         style={{ background: 'var(--surface-2)', padding: 8 }}
                       >
-                        <AlertCircle size={16} color="var(--danger)" />
+                        <Clock size={16} color="var(--brand)" />
                         <div style={{ fontSize: 12 }}>
-                          <b>Estoque Baixo:</b> {item.name} ({item.qty} {item.unit})
+                          <b>Hoje:</b> {todayAppts.length} consultas agendadas nas 4 cadeiras.
                         </div>
-                      </div>
-                    ))}
-
-                    <div
-                      className="list-item"
-                      style={{ background: 'var(--surface-2)', padding: 8 }}
-                    >
-                      <Clock size={16} color="var(--brand)" />
-                      <div style={{ fontSize: 12 }}>
-                        <b>Hoje:</b> {todayAppts.length} consultas agendadas nas 4 cadeiras.
                       </div>
                     </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
 
@@ -316,38 +324,56 @@ export default function Layout({ children }) {
               </div>
 
               {userMenuOpen && (
-                <div
-                  className="card"
-                  style={{
-                    position: 'absolute',
-                    right: 0,
-                    top: 52,
-                    width: 280,
-                    zIndex: 90,
-                    padding: 16,
-                    boxShadow: 'var(--shadow)',
-                  }}
-                >
-                  <div style={{ marginBottom: 12, borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
-                    <b style={{ fontSize: 14 }}>{currentUser?.name}</b>
-                    <div className="small faint">{currentUser?.email}</div>
-                    <div className="small faint">{currentUser?.clinicName}</div>
-                    <span className="badge b-ok small mt" style={{ marginTop: 6, display: 'inline-flex' }}>
-                      <ShieldCheck size={12} /> Eva OS Sincronizado
-                    </span>
-                  </div>
+                <>
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+                    onClick={() => setUserMenuOpen(false)}
+                  />
+                  <div
+                    className="card"
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      top: 52,
+                      width: 290,
+                      zIndex: 1000,
+                      padding: 18,
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      boxShadow: '0 20px 45px -10px rgba(0, 0, 0, 0.45), 0 0 20px rgba(0, 0, 0, 0.2)',
+                    }}
+                  >
+                    <div style={{ marginBottom: 14, borderBottom: '1px solid var(--border)', paddingBottom: 12 }}>
+                      <b style={{ fontSize: 14, display: 'block', color: 'var(--text)' }}>{currentUser?.name}</b>
+                      <div className="small faint" style={{ marginTop: 2 }}>{currentUser?.email}</div>
+                      <div className="small faint">{currentUser?.clinicName}</div>
+                      <span className="badge b-ok small mt" style={{ marginTop: 8, display: 'inline-flex' }}>
+                        <ShieldCheck size={12} /> Eva OS Sincronizado
+                      </span>
+                    </div>
 
-                  <div className="col" style={{ gap: 6 }}>
-                    <button
-                      className="btn btn-sm btn-ghost row"
-                      style={{ width: '100%', justifyContent: 'flex-start', color: 'var(--danger)' }}
-                      onClick={handleLogout}
-                      id="btn-logout"
-                    >
-                      <LogOut size={14} /> Sair da Conta (Logout)
-                    </button>
+                    <div className="col" style={{ gap: 6 }}>
+                      <button
+                        className="btn btn-sm btn-ghost row"
+                        style={{
+                          width: '100%',
+                          justifyContent: 'flex-start',
+                          color: 'var(--danger)',
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          borderRadius: 8,
+                        }}
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          handleLogout();
+                        }}
+                        id="btn-logout"
+                      >
+                        <LogOut size={15} /> Sair da Conta (Logout)
+                      </button>
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
           </div>
