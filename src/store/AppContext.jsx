@@ -3,6 +3,7 @@ import { createSeed } from '../lib/seed';
 import { addDays, todayISO, uid } from '../lib/utils';
 import { procById, CONDITIONS } from '../lib/dental';
 import { useAuth } from './AuthContext';
+import { clinicSupabase } from '../lib/supabase';
 
 const AppCtx = createContext(null);
 
@@ -245,18 +246,57 @@ export function AppProvider({ children }) {
   const [toasts, setToasts] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem('eva-theme') || 'light');
 
-  // Recarrega o estado quando o usuário ativo mudar
+  // Recarrega o estado quando o usuário ativo mudar (LocalStorage + Supabase clinic_state)
   useEffect(() => {
-    dispatch({ type: 'SET_STATE', payload: loadUserData(currentUser) });
+    if (!currentUser) return;
+
+    if (currentUser.id === 'usr_admin') {
+      dispatch({ type: 'SET_STATE', payload: loadUserData(currentUser) });
+      return;
+    }
+
+    // 1. Carrega imediatamente do cache local para resposta instantânea
+    const local = loadUserData(currentUser);
+    dispatch({ type: 'SET_STATE', payload: local });
+
+    // 2. Consulta a nuvem Supabase (clinic_state) para sincronizar dados persistidos
+    clinicSupabase
+      .from('clinic_state')
+      .select('data')
+      .eq('user_id', currentUser.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && data?.data) {
+          dispatch({ type: 'SET_STATE', payload: data.data });
+        }
+      })
+      .catch((err) => {
+        console.warn('Sincronização clinic_state:', err);
+      });
   }, [currentUser?.id]);
 
-  // Salva no localStorage com chave individual por usuário
+  // Salva no localStorage com chave individual por usuário e sincroniza com Supabase clinic_state
   useEffect(() => {
     const key = currentUser?.id === 'usr_admin' || !currentUser ? 'eva-clinic-demo-v2' : `eva-clinic-user-${currentUser.id}`;
     try {
       localStorage.setItem(key, JSON.stringify(state));
     } catch {
       /* ignore */
+    }
+
+    // Se for um usuário real conectado, sincroniza no Supabase clinic_state
+    if (currentUser && currentUser.id !== 'usr_admin') {
+      clinicSupabase
+        .from('clinic_state')
+        .upsert({
+          user_id: currentUser.id,
+          data: state,
+          updated_at: new Date().toISOString(),
+        })
+        .then(({ error }) => {
+          if (error) console.warn('Aviso ao sincronizar clinic_state no Supabase:', error.message);
+        })
+        .catch(() => {});
     }
   }, [state, currentUser?.id]);
 

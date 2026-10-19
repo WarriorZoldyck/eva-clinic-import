@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
-import { supabase, checkEvaSubscriber } from '../lib/supabase';
+import { supabase, clinicSupabase, checkEvaSubscriber, loginWithEvaOS } from '../lib/supabase';
 
 const AUTH_STORAGE_KEY = 'eva_clinic_auth_v1';
 const ACCOUNTS_STORAGE_KEY = 'eva_clinic_accounts_v1';
@@ -20,6 +20,33 @@ export const ADMIN_USER = {
   createdAt: '2026-01-01',
 };
 
+function formatSupabaseUser(user) {
+  if (!user) return null;
+  const meta = user.user_metadata || {};
+  const name = meta.name || meta.full_name || user.email?.split('@')[0] || 'Cirurgião-Dentista';
+  return {
+    id: user.id,
+    email: user.email,
+    name,
+    username: user.email?.split('@')[0] || 'usuario',
+    clinicName: meta.clinicName || 'Eva Clinic',
+    cro: meta.cro || '',
+    phone: meta.phone || '',
+    role: meta.role || 'Cirurgião-Dentista / Responsável Técnico',
+    avatar: name
+      .split(' ')
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase() || 'DR',
+    avatarUrl: meta.avatar_url || null,
+    isEvaSubscriber: true,
+    isEvaSynced: true,
+    isDemo: false,
+    evaPlan: meta.eva_plan || 'Eva OS',
+  };
+}
+
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
@@ -31,7 +58,6 @@ export function AuthProvider({ children }) {
     } catch {
       // ignore
     }
-    // Começa logado como Admin de demonstração
     return ADMIN_USER;
   });
 
@@ -51,6 +77,26 @@ export function AuthProvider({ children }) {
     ];
   });
 
+  // 1. Escuta sessão e reconecta usuário salvo no Supabase Auth
+  useEffect(() => {
+    clinicSupabase.auth.getUser().then(({ data }) => {
+      if (data?.user) {
+        const u = formatSupabaseUser(data.user);
+        setCurrentUser(u);
+      }
+    });
+
+    const { data: sub } = clinicSupabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const u = formatSupabaseUser(session.user);
+        setCurrentUser(u);
+      }
+    });
+
+    return () => sub?.subscription?.unsubscribe();
+  }, []);
+
+  // 2. Persistência da sessão local
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(currentUser));
@@ -68,7 +114,27 @@ export function AuthProvider({ children }) {
     return await checkEvaSubscriber(email);
   }, []);
 
-  // Função de Login no Eva Clinic
+  // Login direto com Eva OS (mesmas credenciais de assinante)
+  const loginEva = async (email, password) => {
+    const res = await loginWithEvaOS(email, password);
+    if (!res.success) return res;
+
+    setCurrentUser(res.user);
+
+    // Tenta também autenticar no Supabase Clinic
+    try {
+      await clinicSupabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+    } catch {
+      // ignore
+    }
+
+    return { success: true, user: res.user };
+  };
+
+  // Função de Login Geral (reconhece Eva OS, Supabase Auth, Contas Locais e Modo Demo)
   const login = async (identifier, password) => {
     const idClean = identifier.trim().toLowerCase();
     const passClean = password.trim();
@@ -79,7 +145,32 @@ export function AuthProvider({ children }) {
       return { success: true, user: ADMIN_USER };
     }
 
-    // 2. Verificação em contas cadastradas localmente
+    // 2. Tenta autenticação direta contra o Eva OS (para assinantes ativos como spclean@hotmail.com)
+    if (idClean.includes('@')) {
+      const evaRes = await loginWithEvaOS(idClean, passClean);
+      if (evaRes.success) {
+        setCurrentUser(evaRes.user);
+        return { success: true, user: evaRes.user };
+      }
+    }
+
+    // 3. Tenta autenticação no Supabase Auth do Eva Clinic
+    try {
+      const { data: authData, error: authErr } = await clinicSupabase.auth.signInWithPassword({
+        email: idClean,
+        password: passClean,
+      });
+
+      if (!authErr && authData?.user) {
+        const u = formatSupabaseUser(authData.user);
+        setCurrentUser(u);
+        return { success: true, user: u };
+      }
+    } catch {
+      // Ignora erro e continua para próximo método
+    }
+
+    // 4. Verificação em contas cadastradas localmente
     const localMatch = accounts.find(
       (acc) =>
         (acc.username?.toLowerCase() === idClean || acc.email?.toLowerCase() === idClean) &&
@@ -92,51 +183,10 @@ export function AuthProvider({ children }) {
       return { success: true, user: userWithoutPass };
     }
 
-    // 3. Verificação no Supabase (tabela clinic_users se disponível)
-    try {
-      const { data, error } = await supabase
-        .from('clinic_users')
-        .select('*')
-        .or(`email.ilike.${idClean}`)
-        .eq('password_hash', passClean) // em produção utilizar hash
-        .limit(1);
-
-      if (!error && data && data.length > 0) {
-        const row = data[0];
-        const remoteUser = {
-          id: row.id,
-          name: row.name,
-          email: row.email,
-          username: row.email.split('@')[0],
-          clinicName: row.clinic_name,
-          cro: row.cro,
-          phone: row.phone,
-          role: row.role || 'Responsável Técnico / Administrador',
-          avatar: row.avatar || 'DR',
-          isEvaSubscriber: true,
-          isEvaSynced: true,
-          isDemo: false,
-          createdAt: row.created_at,
-        };
-
-        // Salva na lista local para cache offline
-        setAccounts((prev) => {
-          if (prev.some((a) => a.email.toLowerCase() === remoteUser.email.toLowerCase())) {
-            return prev;
-          }
-          return [...prev, { ...remoteUser, password: passClean }];
-        });
-
-        setCurrentUser(remoteUser);
-        return { success: true, user: remoteUser };
-      }
-    } catch {
-      // Ignora erro e prossegue com mensagem padrão
-    }
-
     return {
       success: false,
-      error: 'Credenciais inválidas. Verifique seu e-mail e senha cadastrados no Eva Clinic.',
+      error:
+        'Credenciais inválidas. Verifique seu e-mail e senha cadastrados no Eva OS ou Eva Clinic.',
     };
   };
 
@@ -145,96 +195,88 @@ export function AuthProvider({ children }) {
     const emailClean = email.trim().toLowerCase();
     const usernameClean = (username || email.split('@')[0]).trim().toLowerCase();
 
-    // 1. Verifica se já existe localmente
-    if (accounts.some((a) => a.email.toLowerCase() === emailClean || a.username?.toLowerCase() === usernameClean)) {
-      return { success: false, error: 'Este e-mail ou nome de usuário já está cadastrado no Eva Clinic.' };
-    }
+    // 1. Tenta criar conta no Supabase Auth
+    try {
+      const { data: signData, error: signErr } = await clinicSupabase.auth.signUp({
+        email: emailClean,
+        password,
+        options: {
+          data: {
+            name,
+            full_name: name,
+            clinicName,
+            cro,
+            phone,
+          },
+        },
+      });
 
-    // 2. Valida se o usuário é assinante ativo do Eva OS (Apenas leitura)
-    let isSubscriber = true;
-    let subPlan = 'Eva OS';
-
-    if (!forceBypass) {
-      const subCheck = await checkEvaSubscriber(emailClean);
-      if (!subCheck.isSubscriber) {
-        return {
-          success: false,
-          error:
-            subCheck.message ||
-            'Não identificamos uma assinatura ativa do Eva OS para este e-mail. Para utilizar o Eva Clinic gratuitamente, é necessário ser assinante do Eva OS.',
-        };
+      if (!signErr && signData?.user) {
+        const newUser = formatSupabaseUser(signData.user);
+        setCurrentUser(newUser);
+        return { success: true, user: newUser };
       }
-      subPlan = subCheck.plan || 'Eva OS';
+    } catch (err) {
+      console.warn('Registro no Supabase Auth:', err);
     }
 
-    const initials = name
-      .split(' ')
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0].toUpperCase())
-      .join('');
-
-    const newAccount = {
-      id: `usr_${Date.now().toString(36)}`,
-      name: name.trim(),
-      email: emailClean,
+    // 2. Fallback para criação local garantida
+    const newUser = {
+      id: `usr_${Date.now()}`,
+      name,
       username: usernameClean,
-      password: password.trim(),
-      clinicName: clinicName?.trim() || 'Minha Clínica Odontológica',
-      cro: cro?.trim() || 'CRO-SP 000.000',
-      phone: phone?.trim() || '(11) 90000-0000',
+      email: emailClean,
+      clinicName: clinicName || 'Minha Clínica Odontológica',
+      cro: cro || '',
+      phone: phone || '',
       role: 'Responsável Técnico / Administrador',
-      avatar: initials || 'DR',
+      avatar: name
+        .split(' ')
+        .slice(0, 2)
+        .map((w) => w[0])
+        .join('')
+        .toUpperCase() || 'DR',
       isEvaSubscriber: true,
-      evaPlan: subPlan,
       isEvaSynced: true,
-      isDemo: false, // Usuário real começa com espaço limpo/zerado!
-      createdAt: new Date().toISOString().slice(0, 10),
+      isDemo: false,
+      createdAt: new Date().toISOString(),
+      password,
     };
 
-    // Tenta registrar na tabela clinic_users do Supabase se ela já existir
-    try {
-      await supabase.from('clinic_users').insert({
-        email: newAccount.email,
-        password_hash: newAccount.password,
-        name: newAccount.name,
-        clinic_name: newAccount.clinicName,
-        cro: newAccount.cro,
-        phone: newAccount.phone,
-        role: newAccount.role,
-        avatar: newAccount.avatar,
-      });
-    } catch {
-      // Não bloqueia caso a tabela ainda não tenha sido criada no Supabase
-    }
-
-    setAccounts((prev) => [...prev, newAccount]);
-
-    const { password: _, ...userWithoutPass } = newAccount;
+    setAccounts((prev) => [...prev, newUser]);
+    const { password: _, ...userWithoutPass } = newUser;
     setCurrentUser(userWithoutPass);
-    return { success: true, user: userWithoutPass };
+
+    return {
+      success: true,
+      user: userWithoutPass,
+      message: 'Conta criada e ativada com sucesso!',
+    };
   };
 
-  const logout = () => {
-    setCurrentUser(null);
+  // Logout com limpeza no Supabase e local
+  const logout = async () => {
+    try {
+      await clinicSupabase.auth.signOut();
+    } catch {
+      // ignore
+    }
     localStorage.removeItem(AUTH_STORAGE_KEY);
-  };
-
-  // Alternar rapidamente para o modo Demo Admin
-  const setDemoAdmin = () => {
-    setCurrentUser(ADMIN_USER);
+    setCurrentUser(null);
   };
 
   const value = useMemo(
     () => ({
       currentUser,
+      setCurrentUser,
       isAuthenticated: Boolean(currentUser),
       login,
+      loginEva,
       register,
       logout,
-      setDemoAdmin,
       verifyEvaSubscriber,
-      adminCredentials: { username: 'admin', password: '1234' },
+      accounts,
+      ADMIN_USER,
     }),
     [currentUser, accounts, verifyEvaSubscriber]
   );
