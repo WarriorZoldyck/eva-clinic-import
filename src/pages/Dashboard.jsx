@@ -16,6 +16,7 @@ import {
   DollarSign,
   ChevronRight,
   Cake,
+  Activity,
   PlusCircle,
   Database,
   RotateCcw,
