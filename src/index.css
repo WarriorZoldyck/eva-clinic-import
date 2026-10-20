@@ -99,7 +99,49 @@ a { color: inherit; text-decoration: none; }
   border-right: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
   backdrop-filter: blur(20px);
-  transition: transform .35s var(--ease);
+  transition: width .28s var(--ease), padding .28s var(--ease), transform .35s var(--ease);
+}
+.sidebar.collapsed {
+  width: 76px;
+  padding: 18px 8px;
+}
+.sidebar.collapsed .brand {
+  padding: 6px 4px 18px;
+  justify-content: center;
+}
+.sidebar.collapsed .brand-name,
+.sidebar.collapsed .brand-sub,
+.sidebar.collapsed .nav-section,
+.sidebar.collapsed .nav-badge,
+.sidebar.collapsed .nav-link span,
+.sidebar.collapsed .eva-card {
+  display: none !important;
+}
+.sidebar.collapsed .nav-link {
+  justify-content: center;
+  padding: 10px 0;
+  gap: 0;
+}
+.sidebar.collapsed .nav-link.active::before {
+  left: -8px;
+}
+.sidebar-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .2s var(--ease);
+}
+.sidebar-collapse-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
 }
 .brand { display: flex; align-items: center; gap: 12px; padding: 6px 8px 22px; }
 .brand-logo {

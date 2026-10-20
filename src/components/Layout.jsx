@@ -28,6 +28,8 @@ import {
   Building,
   Target,
   RotateCcw,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { BRL } from '../lib/utils';
 
@@ -35,11 +37,22 @@ export default function Layout({ children }) {
   const { state, dispatch, toast, theme, setTheme, toasts } = useApp();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('eva-sidebar-collapsed') === 'true'
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const { currentUser, logout } = useAuth();
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('eva-sidebar-collapsed', String(next));
+      return next;
+    });
+  };
 
   const handleLogout = () => {
     logout();
@@ -65,9 +78,9 @@ export default function Layout({ children }) {
   return (
     <div className="app">
       {/* Sidebar de Navegação */}
-      <aside className={`sidebar ${mobileOpen ? 'open' : ''}`}>
-        <div className="brand">
-          <div className="brand-logo">
+      <aside className={`sidebar ${mobileOpen ? 'open ' : ''}${sidebarCollapsed ? 'collapsed' : ''}`}>
+        <div className="brand" style={{ position: 'relative' }}>
+          <div className="brand-logo" title={sidebarCollapsed ? "Eva Clinic" : undefined}>
             <Stethoscope size={22} color="#fff" />
           </div>
           <div>
@@ -76,6 +89,15 @@ export default function Layout({ children }) {
             </div>
             <div className="brand-sub">Software Odontológico Pro</div>
           </div>
+          <button
+            className="sidebar-collapse-btn desktop-only"
+            style={{ marginLeft: 'auto' }}
+            onClick={toggleSidebar}
+            title={sidebarCollapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'}
+            id="btn-collapse-sidebar"
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
           <button
             className="btn btn-ghost btn-sm mobile-toggle"
             style={{ marginLeft: 'auto' }}
@@ -206,6 +228,16 @@ export default function Layout({ children }) {
           >
             <Menu size={20} />
           </button>
+          {sidebarCollapsed && (
+            <button
+              className="icon-btn desktop-only"
+              onClick={toggleSidebar}
+              title="Expandir menu lateral"
+              style={{ marginRight: 6 }}
+            >
+              <PanelLeftOpen size={18} />
+            </button>
+          )}
 
           {/* Busca Global */}
           <div className="search" onClick={() => setSearchOpen(true)}>

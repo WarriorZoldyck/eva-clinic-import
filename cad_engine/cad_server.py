@@ -104,6 +104,59 @@ class CadApiHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(payload).encode('utf-8'))
             return
 
+        if parsed.path == '/api/dicom-to-bone-stl':
+            # Extrai malha 3D estanque do osso alveolar/mandibular a partir do volume DICOM
+            content_length = int(self.headers.get('Content-Length', 0))
+            try:
+                params = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                vol_bytes = base64.b64decode(params['volume_base64'])
+                dims = params['dims']  # [W, H, D]
+                spacing = params.get('spacing', [0.4, 0.4, 0.4])
+                threshold = float(params.get('threshold_hu', 400.0))
+
+                import numpy as np
+                from skimage import measure
+                from scipy import ndimage
+                import trimesh
+
+                vol = np.frombuffer(vol_bytes, dtype=np.int16).reshape((dims[2], dims[1], dims[0]))
+                binary = vol >= threshold
+                binary = ndimage.binary_opening(binary, iterations=1)
+
+                lab, n = ndimage.label(binary)
+                if n > 1:
+                    sizes = ndimage.sum(binary, lab, range(1, n + 1))
+                    keep = np.where(sizes >= 0.04 * sizes.max())[0] + 1
+                    binary = np.isin(lab, keep)
+
+                field = ndimage.gaussian_filter(binary.astype(np.float32), 0.7)
+                sp = (float(spacing[2]), float(spacing[1]), float(spacing[0]))
+                verts, faces, _, _ = measure.marching_cubes(field, 0.5, spacing=sp, allow_degenerate=False)
+                # Reorienta eixos: (Z, Y, X) -> (X, Y, Z)
+                verts_xyz = verts[:, [2, 1, 0]]
+                mesh = trimesh.Trimesh(vertices=verts_xyz, faces=faces, process=True)
+                trimesh.repair.fix_normals(mesh)
+                trimesh.repair.fill_holes(mesh)
+
+                buf = io.BytesIO()
+                mesh.export(buf, file_type='stl')
+                stl_b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+                code, payload = 200, {
+                    "success": True,
+                    "stl_base64": stl_b64,
+                    "faces": int(len(mesh.faces)),
+                    "volume_mm3": round(float(abs(mesh.volume)), 1) if mesh.is_volume else 0,
+                    "extents_mm": [round(float(v), 1) for v in mesh.extents],
+                }
+            except Exception as e:
+                code, payload = 400, {"success": False, "error": str(e)}
+            self.send_response(code)
+            self._send_cors_headers()
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode('utf-8'))
+            return
+
         if parsed.path == '/api/generate-guide':
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length).decode('utf-8')
