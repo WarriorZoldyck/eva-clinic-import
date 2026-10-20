@@ -14,6 +14,7 @@ import AssistantEVA from './pages/AssistantEVA';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import SurgicalGuide from './pages/ScanPlanner';
+import Pipeline from './pages/Pipeline';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth();
@@ -95,6 +96,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <AssistantEVA />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/pipeline"
+              element={
+                <ProtectedRoute>
+                  <Pipeline />
                 </ProtectedRoute>
               }
             />
