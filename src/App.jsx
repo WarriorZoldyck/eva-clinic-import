@@ -13,7 +13,7 @@ import Inventory from './pages/Inventory';
 import AssistantEVA from './pages/AssistantEVA';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import SurgicalGuide from './pages/SurgicalGuide';
+import SurgicalGuide from './pages/ScanPlanner';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth();

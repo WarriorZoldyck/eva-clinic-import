@@ -18,6 +18,8 @@ import urllib.parse
 # Importa o motor CAD local
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from surgical_guide_generator import build_guide, generate_sample_mandible_arch
+from scan_guide import build_guide_from_scan
+import io, tempfile
 
 PORT = 8005
 
@@ -69,6 +71,39 @@ class CadApiHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == '/api/guide-from-scan':
+            # Gera o guia sobre o STL REAL enviado pelo app (base64) + implantes marcados no visualizador
+            content_length = int(self.headers.get('Content-Length', 0))
+            try:
+                params = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                stl_bytes = base64.b64decode(params['stl_base64'])
+                g, info = build_guide_from_scan(
+                    stl_bytes,
+                    params['implants'],
+                    file_type=str(params.get('file_type', 'stl')).lower().lstrip('.'),
+                    up=int(params.get('up', 1)),
+                    radius=float(params.get('radius', 14.0)),
+                    gap=float(params.get('gap', 0.10)),
+                    thickness=float(params.get('thickness', 2.5)),
+                    hole_d=float(params.get('hole_d', 5.0)),
+                    sleeve_od=float(params.get('sleeve_od', 7.5)),
+                    sleeve_h=float(params.get('sleeve_h', 5.0)),
+                    res=float(params.get('res', 0.2)),
+                )
+                buf = io.BytesIO()
+                g.export(buf, file_type='stl')
+                info['success'] = True
+                info['stl_base64'] = base64.b64encode(buf.getvalue()).decode('ascii')
+                code, payload = 200, info
+            except Exception as e:
+                code, payload = 400, {"success": False, "error": str(e)}
+            self.send_response(code)
+            self._send_cors_headers()
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode('utf-8'))
+            return
+
         if parsed.path == '/api/generate-guide':
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length).decode('utf-8')
