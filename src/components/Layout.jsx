@@ -27,11 +27,12 @@ import {
   ShieldCheck,
   Building,
   Target,
+  RotateCcw,
 } from 'lucide-react';
 import { BRL } from '../lib/utils';
 
 export default function Layout({ children }) {
-  const { state, theme, setTheme, toasts } = useApp();
+  const { state, dispatch, toast, theme, setTheme, toasts } = useApp();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -347,12 +348,41 @@ export default function Layout({ children }) {
                       <b style={{ fontSize: 14, display: 'block', color: 'var(--text)' }}>{currentUser?.name}</b>
                       <div className="small faint" style={{ marginTop: 2 }}>{currentUser?.email}</div>
                       <div className="small faint">{currentUser?.clinicName}</div>
-                      <span className="badge b-ok small mt" style={{ marginTop: 8, display: 'inline-flex' }}>
-                        <ShieldCheck size={12} /> Eva OS Sincronizado
-                      </span>
+                      {currentUser?.isDemo ? (
+                        <span className="badge b-warn small mt" style={{ marginTop: 8, display: 'inline-flex' }}>
+                          Modo Demonstração
+                        </span>
+                      ) : (
+                        <span className="badge b-ok small mt" style={{ marginTop: 8, display: 'inline-flex' }}>
+                          <ShieldCheck size={12} /> Conta Exclusiva Conectada
+                        </span>
+                      )}
                     </div>
 
                     <div className="col" style={{ gap: 6 }}>
+                      {!currentUser?.isDemo && (
+                        <button
+                          className="btn btn-sm btn-ghost row"
+                          style={{
+                            width: '100%',
+                            justifyContent: 'flex-start',
+                            color: 'var(--text)',
+                            padding: '10px 12px',
+                            cursor: 'pointer',
+                            borderRadius: 8,
+                            fontSize: 12.5,
+                          }}
+                          onClick={() => {
+                            setUserMenuOpen(false);
+                            if (window.confirm('Deseja zerar os dados da sua clínica e restaurar o estado original limpo? Todos os dados adicionados serão resetados.')) {
+                              dispatch({ type: 'RESET_TO_CLEAN', user: currentUser });
+                              toast('Clínica restaurada para o estado original limpo!');
+                            }
+                          }}
+                        >
+                          <RotateCcw size={15} /> Restaurar Clínica Limpa
+                        </button>
+                      )}
                       <button
                         className="btn btn-sm btn-ghost row"
                         style={{

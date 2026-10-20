@@ -43,8 +43,16 @@ export function createCleanState(user) {
   };
 }
 
+export function isDemoSeedData(data) {
+  if (!data) return false;
+  const hasSeedPatients = Array.isArray(data.patients) && data.patients.some((p) => p.id === 'p1' || p.name === 'Ana Beatriz Carvalho');
+  const hasSeedProfs = Array.isArray(data.professionals) && data.professionals.some((pr) => pr.id === 'pr1' || pr.name === 'Dra. Eva Martins');
+  return Boolean(hasSeedPatients || hasSeedProfs);
+}
+
 function loadUserData(user) {
-  if (!user || user.id === 'usr_admin') {
+  const isDemo = !user || user.isDemo || user.id === 'usr_admin';
+  if (isDemo) {
     try {
       const raw = localStorage.getItem('eva-clinic-demo-v2');
       if (raw) return JSON.parse(raw);
@@ -54,11 +62,24 @@ function loadUserData(user) {
     return createSeed();
   }
 
-  // Usuário real com espaço próprio
+  // Usuário real com conta própria
   const userKey = `eva-clinic-user-${user.id}`;
   try {
     const raw = localStorage.getItem(userKey);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // Se houver dados de demonstração contaminando a conta real, purga e restaura a clínica limpa original
+      if (isDemoSeedData(parsed)) {
+        const clean = createCleanState(user);
+        try {
+          localStorage.setItem(userKey, JSON.stringify(clean));
+        } catch {
+          /* ignore */
+        }
+        return clean;
+      }
+      return parsed;
+    }
   } catch {
     /* ignore */
   }
@@ -76,10 +97,14 @@ function reducer(state, a) {
       return createCleanState(a.user);
 
     case 'LOAD_DEMO_SEED':
+      // Demonstração é exclusivamente para quem NÃO tem conta (isDemo ou visitante)
+      if (a.user && !a.user.isDemo && a.user.id !== 'usr_admin') {
+        return state;
+      }
       return createSeed();
 
     case 'RESET':
-      return a.user?.id === 'usr_admin' ? createSeed() : createCleanState(a.user);
+      return !a.user || a.user.isDemo || a.user.id === 'usr_admin' ? createSeed() : createCleanState(a.user);
 
     case 'ADD_PATIENT':
       return { ...state, patients: [a.patient, ...state.patients] };
@@ -250,7 +275,8 @@ export function AppProvider({ children }) {
   useEffect(() => {
     if (!currentUser) return;
 
-    if (currentUser.id === 'usr_admin') {
+    const isDemo = currentUser.isDemo || currentUser.id === 'usr_admin';
+    if (isDemo) {
       dispatch({ type: 'SET_STATE', payload: loadUserData(currentUser) });
       return;
     }
@@ -267,7 +293,18 @@ export function AppProvider({ children }) {
       .maybeSingle()
       .then(({ data, error }) => {
         if (!error && data?.data) {
-          dispatch({ type: 'SET_STATE', payload: data.data });
+          if (isDemoSeedData(data.data)) {
+            // Purga dados de demonstração salvos indevidamente no Supabase para usuário real
+            const clean = createCleanState(currentUser);
+            dispatch({ type: 'SET_STATE', payload: clean });
+            clinicSupabase.from('clinic_state').upsert({
+              user_id: currentUser.id,
+              data: clean,
+              updated_at: new Date().toISOString(),
+            });
+          } else {
+            dispatch({ type: 'SET_STATE', payload: data.data });
+          }
         }
       })
       .catch((err) => {
@@ -277,7 +314,8 @@ export function AppProvider({ children }) {
 
   // Salva no localStorage com chave individual por usuário e sincroniza com Supabase clinic_state
   useEffect(() => {
-    const key = currentUser?.id === 'usr_admin' || !currentUser ? 'eva-clinic-demo-v2' : `eva-clinic-user-${currentUser.id}`;
+    const isDemo = !currentUser || currentUser.isDemo || currentUser.id === 'usr_admin';
+    const key = isDemo ? 'eva-clinic-demo-v2' : `eva-clinic-user-${currentUser.id}`;
     try {
       localStorage.setItem(key, JSON.stringify(state));
     } catch {
@@ -285,7 +323,7 @@ export function AppProvider({ children }) {
     }
 
     // Se for um usuário real conectado, sincroniza no Supabase clinic_state
-    if (currentUser && currentUser.id !== 'usr_admin') {
+    if (!isDemo && currentUser) {
       clinicSupabase
         .from('clinic_state')
         .upsert({
@@ -298,7 +336,7 @@ export function AppProvider({ children }) {
         })
         .catch(() => {});
     }
-  }, [state, currentUser?.id]);
+  }, [state, currentUser]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -329,6 +367,7 @@ export function AppProvider({ children }) {
       theme,
       setTheme,
       isCleanSpace: Boolean(currentUser && !currentUser.isDemo && state.patients.length === 0),
+      isDemoSeed: isDemoSeedData(state),
       ...helpers,
     }),
     [state, toast, toasts, theme, helpers, currentUser]

@@ -16,9 +16,10 @@ import {
   DollarSign,
   ChevronRight,
   Cake,
-  Activity,
   PlusCircle,
   Database,
+  RotateCcw,
+  AlertCircle,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -35,7 +36,7 @@ import {
 } from 'recharts';
 
 export default function Dashboard() {
-  const { state, dispatch, toast, isCleanSpace } = useApp();
+  const { state, dispatch, toast, isCleanSpace, isDemoSeed } = useApp();
   const { currentUser } = useAuth();
   const navigate = useNavigate();
   const today = todayISO();
@@ -133,6 +134,22 @@ export default function Dashboard() {
         </div>
 
         <div className="actions">
+          {currentUser && !currentUser.isDemo && state.patients.length > 0 && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                if (window.confirm('Deseja zerar os dados da sua clínica e retornar ao estado original limpo? Todos os dados cadastrados serão resetados.')) {
+                  dispatch({ type: 'RESET_TO_CLEAN', user: currentUser });
+                  toast('Clínica restaurada para o estado original limpo!');
+                }
+              }}
+              title="Restaurar clínica para o estado original limpo"
+              style={{ fontSize: 13, color: 'var(--text-3)' }}
+            >
+              <RotateCcw size={15} />
+              Restaurar Original
+            </button>
+          )}
           <button
             className="btn btn-primary"
             onClick={() => navigate('/pacientes')}
@@ -151,6 +168,46 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {/* Alerta se houver dados de demonstração em conta real */}
+      {!currentUser?.isDemo && isDemoSeed && (
+        <div
+          className="card mb"
+          style={{
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            padding: '16px 20px',
+            borderRadius: 14,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 16,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <AlertCircle size={24} color="var(--danger)" />
+            <div>
+              <h4 style={{ margin: '0 0 2px', fontSize: 14, color: '#fff' }}>
+                Dados de Demonstração Detectados na sua Conta
+              </h4>
+              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--text-dim)' }}>
+                Sua conta continha dados de demonstração carregados. Clique no botão ao lado para restaurar seu ambiente original limpo.
+              </p>
+            </div>
+          </div>
+          <button
+            className="btn btn-primary"
+            style={{ background: 'var(--danger)', borderColor: 'var(--danger)', color: '#fff', fontSize: 13 }}
+            onClick={() => {
+              dispatch({ type: 'RESET_TO_CLEAN', user: currentUser });
+              toast('Dados de demonstração removidos! Sua clínica voltou ao original limpo.');
+            }}
+          >
+            <RotateCcw size={15} /> Restaurar Clínica Limpa
+          </button>
+        </div>
+      )}
 
       {/* Banner de Boas-Vindas para Espaço Zerado */}
       {isCleanSpace && (
@@ -202,13 +259,10 @@ export default function Dashboard() {
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => {
-                dispatch({ type: 'LOAD_DEMO_SEED' });
-                toast('Dados de demonstração carregados para exploração!');
-              }}
+              onClick={() => navigate('/agenda')}
               style={{ fontSize: 13 }}
             >
-              <Database size={15} /> Carregar Exemplo Demo
+              <Calendar size={15} /> Agendar Consulta
             </button>
           </div>
         </div>
