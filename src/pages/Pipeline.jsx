@@ -121,6 +121,7 @@ export default function Pipeline() {
       name: f.name.trim(), phone: f.phone.trim(), email: f.email.trim(), source: f.source, interest: f.interest.trim(),
       value: Number(String(f.value).replace(',', '.')) || 0, notes: f.notes, campaignId: f.campaignId.trim(),
       tags: String(f.tags).split(',').map((t) => t.trim()).filter(Boolean),
+      ...(f.patientId ? { patientId: f.patientId } : {}),
     };
     if (f.id) {
       const prev = leads.find((l) => l.id === f.id);
