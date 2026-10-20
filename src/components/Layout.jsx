@@ -10,6 +10,7 @@ import {
   DollarSign,
   Boxes,
   Sparkles,
+  Kanban,
   Search,
   Bell,
   Sun,
@@ -158,6 +159,15 @@ export default function Layout({ children }) {
         </NavLink>
 
         <div className="nav-section">Gestão</div>
+        <NavLink
+          to="/pipeline"
+          className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+          onClick={() => setMobileOpen(false)}
+        >
+          <Kanban size={18} />
+          <span>Pipeline (CRM)</span>
+        </NavLink>
+
         <NavLink
           to="/financeiro"
           className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}

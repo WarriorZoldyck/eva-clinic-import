@@ -40,6 +40,7 @@ export function createCleanState(user) {
     evolutions: [],
     documents: [],
     surgicalGuides: [],
+    leads: [],
   };
 }
 
@@ -246,6 +247,26 @@ function reducer(state, a) {
       return { ...state, evolutions: [a.evo, ...state.evolutions] };
     case 'ADD_DOCUMENT':
       return { ...state, documents: [a.doc, ...state.documents] };
+
+    case 'ADD_LEAD':
+      return { ...state, leads: [a.lead, ...(state.leads || [])] };
+    case 'UPDATE_LEAD':
+      return { ...state, leads: (state.leads || []).map((l) => (l.id === a.id ? { ...l, ...a.patch } : l)) };
+    case 'DELETE_LEAD':
+      return { ...state, leads: (state.leads || []).filter((l) => l.id !== a.id) };
+    case 'MOVE_LEAD': {
+      // a.leads: lista completa já reordenada
+      return { ...state, leads: a.leads };
+    }
+    case 'CONVERT_LEAD': {
+      const lead = (state.leads || []).find((l) => l.id === a.id);
+      if (!lead || !a.patient) return state;
+      return {
+        ...state,
+        patients: [a.patient, ...state.patients],
+        leads: state.leads.map((l) => (l.id === a.id ? { ...l, stage: 'ganho', patientId: a.patient.id, stageChangedAt: todayISO() } : l)),
+      };
+    }
 
     case 'SAVE_SURGICAL_GUIDE': {
       const list = state.surgicalGuides || [];
