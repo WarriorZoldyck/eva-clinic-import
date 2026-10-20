@@ -1,7 +1,7 @@
 // ===========================================================================
 // Eva Clinic — Leitor & Motor de Tomografia DICOM (MPR Axial, Sagital, Coronal)
-// Zero dependências externas, ultra-otimizado para CBCT / TC odontológica.
-// Suporta arquivos únicos multi-frame ou pastas com centenas de fatias .dcm.
+// Suporta Explicit VR, Implicit VR, multi-frame e pastas com fatias individuais.
+// Otimizado para TC Cone Beam (CBCT) odontológica de alta resolução.
 // ===========================================================================
 
 export const DENTAL_PRESETS = [
@@ -11,9 +11,12 @@ export const DENTAL_PRESETS = [
   { id: 'sinus', label: 'Vias aéreas & Seio maxilar', ww: 1600, wl: -200 },
 ];
 
-/**
- * Lê uma string ASCII ou tag numérica no buffer DICOM
- */
+const VALID_VRS = new Set([
+  'AE', 'AS', 'AT', 'CS', 'DA', 'DS', 'DT', 'FL', 'FD', 'IS', 'LO', 'LT',
+  'OB', 'OD', 'OF', 'OL', 'OW', 'PN', 'SH', 'SL', 'SQ', 'SS', 'ST', 'SV',
+  'TM', 'UC', 'UI', 'UL', 'UN', 'UR', 'US', 'UT', 'UV',
+]);
+
 function readTagString(view, offset, length) {
   let s = '';
   for (let i = 0; i < length; i++) {
@@ -25,7 +28,8 @@ function readTagString(view, offset, length) {
 }
 
 /**
- * Decodifica um arquivo DICOM (.dcm) individual
+ * Decodifica um arquivo DICOM (.dcm) individual com suporte robusto a
+ * Explicit VR e Implicit VR Little Endian.
  */
 export function parseDicomSlice(arrayBuffer, fileName = 'slice.dcm') {
   const view = new DataView(arrayBuffer);
@@ -48,7 +52,7 @@ export function parseDicomSlice(arrayBuffer, fileName = 'slice.dcm') {
   }
 
   let offset = isPart10 ? 132 : 0;
-  let explicit = true;
+  let datasetExplicit = true; // Group 0002 é sempre explicit; dataset pode ser implicit
 
   const meta = {
     fileName,
@@ -61,11 +65,12 @@ export function parseDicomSlice(arrayBuffer, fileName = 'slice.dcm') {
     pixelRepresentation: 0, // 0 = unsigned, 1 = signed
     rescaleSlope: 1,
     rescaleIntercept: 0,
-    windowCenter: 400,
+    windowCenter: 450,
     windowWidth: 2000,
     pixelSpacing: [0.3, 0.3],
     sliceThickness: 0.3,
     sliceLocation: 0,
+    instanceNumber: 1,
     imagePositionPatient: [0, 0, 0],
     patientName: 'Paciente',
     pixelDataOffset: -1,
@@ -77,12 +82,28 @@ export function parseDicomSlice(arrayBuffer, fileName = 'slice.dcm') {
     const element = view.getUint16(offset + 2, true);
     const tag = (group << 16) | element;
 
+    // Se saiu do group 0002, verifica se a sintaxe do dataset é implícita
+    let isExplicit = true;
+    if (group > 0x0002) {
+      if (!datasetExplicit) {
+        isExplicit = false;
+      } else {
+        // Checagem de segurança de VR
+        const c1 = String.fromCharCode(u8[offset + 4]);
+        const c2 = String.fromCharCode(u8[offset + 5]);
+        const candidateVr = c1 + c2;
+        if (!VALID_VRS.has(candidateVr)) {
+          isExplicit = false;
+          datasetExplicit = false;
+        }
+      }
+    }
+
     let vr = '';
     let elementLength = 0;
     let dataOffset = 0;
 
-    // Detecta Explicit VR x Implicit VR
-    if (explicit) {
+    if (isExplicit) {
       vr = String.fromCharCode(u8[offset + 4], u8[offset + 5]);
       if (['OB', 'OW', 'OF', 'SQ', 'UT', 'UN'].includes(vr)) {
         if (offset + 12 > len) break;
@@ -97,8 +118,17 @@ export function parseDicomSlice(arrayBuffer, fileName = 'slice.dcm') {
       dataOffset = offset + 8;
     }
 
+    // Leitura da Transfer Syntax UID no Group 0002
+    if (tag === 0x00020010) {
+      const syntax = readTagString(view, dataOffset, Math.min(elementLength, 64));
+      // 1.2.840.10008.1.2 é Implicit VR Little Endian
+      if (syntax.startsWith('1.2.840.10008.1.2') && !syntax.startsWith('1.2.840.10008.1.2.')) {
+        datasetExplicit = false;
+      }
+    }
+
     if (elementLength === 0xffffffff) {
-      // Indefinite length sequence
+      // SQ indefinido
       offset = dataOffset + 4;
       continue;
     }
@@ -156,6 +186,11 @@ export function parseDicomSlice(arrayBuffer, fileName = 'slice.dcm') {
       const s = readTagString(view, dataOffset, Math.min(elementLength, 32));
       const val = parseFloat(s);
       if (!isNaN(val)) meta.sliceThickness = val;
+    } else if (tag === 0x00200013) {
+      // Instance Number
+      const s = readTagString(view, dataOffset, Math.min(elementLength, 16));
+      const n = parseInt(s, 10);
+      if (!isNaN(n)) meta.instanceNumber = n;
     } else if (tag === 0x00201041) {
       // Slice Location
       const s = readTagString(view, dataOffset, Math.min(elementLength, 32));
@@ -208,22 +243,20 @@ export function parseDicomSlice(arrayBuffer, fileName = 'slice.dcm') {
 }
 
 /**
- * Constrói um Volume 3D contínuo a partir de uma lista de fatias ou de um arquivo multi-frame.
- * Aplica downsampling se o volume exceder limites de memória para garantir fluidez a 60 FPS.
+ * Constrói o volume 3D garantindo a ordenação correta das fatias (por posição Z ou Instance Number)
  */
 export function buildVolumeFromSlices(parsedList, maxDimension = 256) {
   if (!parsedList || !parsedList.length) {
     throw new Error('Nenhuma fatia DICOM fornecida.');
   }
 
-  // 1. Caso multi-frame (arquivo único contendo todas as fatias do exame)
+  // 1. Caso multi-frame
   if (parsedList.length === 1 && parsedList[0].meta.numberOfFrames > 1) {
     const single = parsedList[0];
     const { rows, cols, numberOfFrames, rescaleSlope, rescaleIntercept, pixelSpacing, sliceThickness } = single.meta;
     const totalSlices = numberOfFrames;
     const raw = single.rawPixels;
 
-    // Calcula escala de downsampling se for muito pesado
     const step = rows > maxDimension || cols > maxDimension ? 2 : 1;
     const outW = Math.floor(cols / step);
     const outH = Math.floor(rows / step);
@@ -259,9 +292,17 @@ export function buildVolumeFromSlices(parsedList, maxDimension = 256) {
     };
   }
 
-  // 2. Caso série de fatias individuais (.dcm separados)
-  // Ordena espacialmente por posição Z
-  parsedList.sort((a, b) => a.meta.sliceLocation - b.meta.sliceLocation);
+  // 2. Caso série de fatias individuais (.dcm)
+  // Ordena prioritariamente por Z da posição do paciente, ou por sliceLocation, ou por instanceNumber
+  parsedList.sort((a, b) => {
+    if (a.meta.imagePositionPatient[2] !== b.meta.imagePositionPatient[2]) {
+      return a.meta.imagePositionPatient[2] - b.meta.imagePositionPatient[2];
+    }
+    if (a.meta.sliceLocation !== b.meta.sliceLocation) {
+      return a.meta.sliceLocation - b.meta.sliceLocation;
+    }
+    return a.meta.instanceNumber - b.meta.instanceNumber;
+  });
 
   const first = parsedList[0].meta;
   const rows = first.rows;
@@ -296,11 +337,10 @@ export function buildVolumeFromSlices(parsedList, maxDimension = 256) {
     }
   }
 
-  // Estima espessura entre fatias consecutivas
   let dz = first.sliceThickness || 0.3;
   if (parsedList.length >= 2) {
     const dist = Math.abs(parsedList[1].meta.sliceLocation - parsedList[0].meta.sliceLocation);
-    if (dist > 0.05 && dist < 10) dz = dist;
+    if (dist > 0.05 && dist < 15) dz = dist;
   }
 
   return {
@@ -314,9 +354,6 @@ export function buildVolumeFromSlices(parsedList, maxDimension = 256) {
   };
 }
 
-/**
- * Converte Hounsfield Unit para pixel em escala de cinza 0-255 com base em WW/WL
- */
 export function huToGray(hu, ww, wl) {
   const low = wl - ww / 2;
   const high = wl + ww / 2;
@@ -325,9 +362,6 @@ export function huToGray(hu, ww, wl) {
   return Math.round(((hu - low) / ww) * 255);
 }
 
-/**
- * Cria LUT (Lookup Table) rápida para 60 FPS
- */
 export function createLut(ww, wl, minHU = -1024, maxHU = 3071) {
   const range = maxHU - minHU + 1;
   const lut = new Uint8Array(range);
@@ -342,9 +376,6 @@ export function createLut(ww, wl, minHU = -1024, maxHU = 3071) {
   return { lut, minHU };
 }
 
-/**
- * Extrai corte Axial (Z constante)
- */
 export function extractAxialImageData(volume, zSlice, ww, wl, outImageData) {
   const [W, H, D] = volume.dims;
   const z = Math.max(0, Math.min(D - 1, Math.round(zSlice)));
@@ -366,9 +397,6 @@ export function extractAxialImageData(volume, zSlice, ww, wl, outImageData) {
   return outImageData;
 }
 
-/**
- * Extrai corte Coronal (Y constante)
- */
 export function extractCoronalImageData(volume, ySlice, ww, wl, outImageData) {
   const [W, H, D] = volume.dims;
   const y = Math.max(0, Math.min(H - 1, Math.round(ySlice)));
@@ -377,7 +405,6 @@ export function extractCoronalImageData(volume, ySlice, ww, wl, outImageData) {
   const vol = volume.data;
 
   let pIdx = 0;
-  // No Coronal, a altura é o eixo Z (de cima para baixo ou invertido)
   for (let z = D - 1; z >= 0; z--) {
     const zOffset = z * W * H + y * W;
     for (let x = 0; x < W; x++) {
@@ -392,9 +419,6 @@ export function extractCoronalImageData(volume, ySlice, ww, wl, outImageData) {
   return outImageData;
 }
 
-/**
- * Extrai corte Sagital (X constante)
- */
 export function extractSagittalImageData(volume, xSlice, ww, wl, outImageData) {
   const [W, H, D] = volume.dims;
   const x = Math.max(0, Math.min(W - 1, Math.round(xSlice)));
