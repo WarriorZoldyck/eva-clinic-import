@@ -185,6 +185,26 @@ export default function Pipeline() {
               <button className="btn btn-sm" onClick={() => setEditing(null)} aria-label="Fechar"><X size={16} /></button>
             </div>
             <div className="modal-body lead-form">
+              {!editing.id && state.patients.length > 0 && (
+                <div className="field" style={{ gridColumn: '1 / -1' }}>
+                  <label>Puxar contato já cadastrado</label>
+                  <select
+                    className="input"
+                    value={editing.patientId || ''}
+                    onChange={(e) => {
+                      const p = state.patients.find((x) => x.id === e.target.value);
+                      setEditing((s) => p
+                        ? { ...s, patientId: p.id, name: p.name || '', phone: p.phone || '', email: p.email || '' }
+                        : { ...s, patientId: undefined });
+                    }}
+                  >
+                    <option value="">— Novo contato (preencher abaixo) —</option>
+                    {[...state.patients].sort((a, b) => a.name.localeCompare(b.name)).map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}{p.phone ? ` · ${p.phone}` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="field"><label>Nome *</label><input className="input" value={editing.name} onChange={set('name')} autoFocus /></div>
               <div className="field"><label>Telefone / WhatsApp</label><input className="input" value={editing.phone} onChange={set('phone')} /></div>
               <div className="field"><label>Email</label><input className="input" value={editing.email} onChange={set('email')} /></div>
