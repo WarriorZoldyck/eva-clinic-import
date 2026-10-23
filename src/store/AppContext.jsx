@@ -6,7 +6,7 @@ import { useAuth } from './AuthContext';
 import { clinicSupabase } from '../lib/supabase';
 import { fetchCloudClinicData, queueCloudSync } from '../lib/clinicSync';
 
-const AppCtx = createContext(null);
+const AppCtx = globalThis.__EVA_APP_CTX__ || (globalThis.__EVA_APP_CTX__ = createContext(null));
 
 export function createCleanState(user) {
   const userName = user?.name || 'Dr(a). Cirurgião-Dentista';
