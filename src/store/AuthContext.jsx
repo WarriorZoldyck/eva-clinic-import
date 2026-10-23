@@ -47,7 +47,7 @@ function formatSupabaseUser(user) {
   };
 }
 
-const AuthContext = createContext(null);
+const AuthContext = globalThis.__EVA_AUTH_CTX__ || (globalThis.__EVA_AUTH_CTX__ = createContext(null));
 
 export function AuthProvider({ children }) {
   // Usuário autenticado ativo: em máquinas novas inicia estritamente como NULL para exigir login!
