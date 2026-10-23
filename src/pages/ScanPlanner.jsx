@@ -11,6 +11,7 @@
 // 7. Modo Tela Cheia (Workstation) e ferramentas de alinhamento milimétrico.
 // ===========================================================================
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -21,8 +22,11 @@ import {
   FolderOpen, Eye, EyeOff, Move, RotateCw, Trash2, Crosshair, MousePointer2,
   Download, Cpu, Scissors, Save, Maximize2, Minimize2, Columns, Layers,
   Box, RefreshCw, Sliders, AlertCircle, Sparkles, RotateCcw, Compass,
+  ClipboardCheck, FolderUp, Check, ExternalLink, FileText, CheckCircle2,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
+import { uid, todayISO } from '../lib/utils';
+import { PROCEDURES, toothName, PERMANENT } from '../lib/dental';
 import {
   parseDicomSlice, buildVolumeFromSlices, DENTAL_PRESETS,
   extractAxialImageData, extractCoronalImageData, extractSagittalImageData,
@@ -139,8 +143,18 @@ export default function ScanPlanner() {
   const [cad, setCad] = useState('checking');
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const navigate = useNavigate();
   const [patientId, setPatientId] = useState('');
   const [lastGuide, setLastGuide] = useState(null);
+
+  // Estados para sincronização direta do STL / Tomografia com o Prontuário do Paciente
+  const [prontuarioModalOpen, setProntuarioModalOpen] = useState(false);
+  const [targetTooth, setTargetTooth] = useState(36);
+  const [targetProcedure, setTargetProcedure] = useState('p_imp_1');
+  const [clinicalNotes, setClinicalNotes] = useState('');
+  const [syncPlan, setSyncPlan] = useState(true);
+  const [syncOdonto, setSyncOdonto] = useState(true);
+  const [syncEvolution, setSyncEvolution] = useState(true);
 
   // Estados Tomografia DICOM e Modo Exoplan Lado a Lado
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -464,8 +478,15 @@ export default function ScanPlanner() {
 
     const stlFiles = itemsToProcess.filter((f) => /\.(stl|ply)$/i.test(f.name));
     const dcmFiles = itemsToProcess.filter(
-      (f) => /\.(dcm|dicom)$/i.test(f.name) || (!f.name.includes('.') && f.size > 10000) || /ct|slice|image|im_\d+/i.test(f.name)
+      (f) =>
+        /\.(dcm|dicom|ima)$/i.test(f.name) ||
+        (!f.name.includes('.') && (f.size > 1000 || f.name.length > 3)) ||
+        /ct|slice|image|im_|ser|img|dcm/i.test(f.name) ||
+        f.type === 'application/dicom'
     );
+
+    // Ordena fatias tomográficas de forma natural (CT1, CT2... CT10)
+    dcmFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
     // 2. Carrega arquivos de malha 3D (STL / PLY)
     for (const f of stlFiles) {
@@ -480,15 +501,17 @@ export default function ScanPlanner() {
     // 3. Carrega tomografia DICOM (fatias ordenadas)
     if (dcmFiles.length > 0) {
       try {
-        toast(`Processando tomografia: ${dcmFiles.length} fatia(s) DICOM...`, 'info');
+        toast(`Processando tomografia: lendo ${dcmFiles.length} fatias DICOM...`, 'info');
         const parsedSlices = [];
         for (const df of dcmFiles) {
           try {
             const buf = await df.arrayBuffer();
             const slice = parseDicomSlice(buf, df.name);
-            parsedSlices.push(slice);
+            if (slice && slice.pixelData && slice.pixelData.length > 0) {
+              parsedSlices.push(slice);
+            }
           } catch {
-            // Ignora arquivos que não são fatias válidas
+            // Ignora arquivos do diretório que não são fatias válidas
           }
         }
 
@@ -501,9 +524,9 @@ export default function ScanPlanner() {
             sagittal: Math.floor(volume.dims[0] / 2),
           });
           setViewMode('split');
-          toast(`Tomografia carregada! ${parsedSlices.length} fatias (${volume.dims.join(' × ')} voxels)`, 'success');
+          toast(`Tomografia carregada! ${parsedSlices.length} fatias processadas (${volume.dims.join(' × ')} voxels)`, 'success');
         } else {
-          toast('Nenhuma fatia DICOM legível encontrada.', 'warn');
+          toast('Nenhuma fatia DICOM legível encontrada nos arquivos selecionados.', 'warn');
         }
       } catch (err) {
         toast(`Erro ao processar tomografia: ${err.message}`, 'error');
@@ -514,6 +537,89 @@ export default function ScanPlanner() {
     const base = [...E.models.values()].find((m) => m.role === 'inferior' || m.role === 'superior');
     if (base) setGuideParams((g) => (g.base && E.models.has(Number(g.base)) ? g : { ...g, base: String(base.id) }));
   }, [E, addGeometry, syncModels, fitView, toast]);
+
+  // Abertura do modal de Marcação Direta no Prontuário
+  const openProntuarioModal = useCallback((imp) => {
+    const item = imp || (selImplant ? implants.find((i) => i.id === selImplant) : implants[0]);
+    if (item) {
+      const match = item.label.match(/\d+/);
+      const num = match ? parseInt(match[0], 10) : 36;
+      if (num >= 11 && num <= 48) setTargetTooth(num);
+      setClinicalNotes(
+        `Implante planejado no scan/tomografia: Ø ${item.diameter}mm × ${item.length}mm, inclinação de ${item.tilt?.toFixed(1) || '0.0'}°. Densidade óssea avaliada na TC.`
+      );
+    } else if (!clinicalNotes) {
+      setClinicalNotes('Planejamento de implante e guia cirúrgico dento-suportado via tomografia e escaneamento 3D.');
+    }
+    setProntuarioModalOpen(true);
+  }, [selImplant, implants, clinicalNotes]);
+
+  // Gravação no Prontuário, Odontograma 2D, Evolução e Plano de Tratamento
+  const handleConfirmProntuario = () => {
+    if (!patientId) {
+      toast('Por favor, selecione um paciente acima para salvar no prontuário.', 'warn');
+      return;
+    }
+    const pat = state.patients.find((p) => p.id === patientId);
+    const tooth = Number(targetTooth);
+    const now = todayISO();
+
+    if (syncOdonto) {
+      dispatch({
+        type: 'ODONTO_ADD',
+        patientId,
+        tooth,
+        entry: {
+          id: uid('od'),
+          condition: 'implante',
+          faces: [],
+          status: 'planejado',
+          date: now,
+          notes: clinicalNotes,
+        },
+      });
+    }
+
+    if (syncPlan) {
+      dispatch({
+        type: 'ADD_TO_PLAN',
+        patientId,
+        procedureId: targetProcedure || 'p_imp_1',
+        tooth,
+        faces: [],
+      });
+    }
+
+    if (syncEvolution) {
+      dispatch({
+        type: 'ADD_EVOLUTION',
+        evo: {
+          id: uid('ev'),
+          patientId,
+          professionalId: 'pr1',
+          date: now,
+          text: `[Planejamento Tomográfico & STL 3D — Dente ${tooth} (${toothName(tooth)})]\n${clinicalNotes || 'Implante planejado com tomografia computorizada e escaneamento 3D.'}`,
+        },
+      });
+    }
+
+    dispatch({
+      type: 'SAVE_SURGICAL_GUIDE',
+      guide: {
+        patientId,
+        toothNumber: tooth,
+        guideParams,
+        implantsCount: implants.length,
+        notes: clinicalNotes,
+        hasTomography: !!dicomVolume,
+        tomographyPatient: dicomVolume?.patientName || null,
+        models: models.map((m) => m.name),
+      },
+    });
+
+    toast(`Planejamento do dente ${tooth} registrado com sucesso no prontuário de ${pat?.name}!`, 'success');
+    setProntuarioModalOpen(false);
+  };
 
   // Abertura vertical entre arcadas
   const openingRef = useRef(0);
@@ -775,6 +881,22 @@ export default function ScanPlanner() {
             {state.patients.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
 
+          {/* Botão Marcar no Prontuário do Paciente */}
+          <button
+            style={{
+              ...S.btn(true),
+              background: '#0d9488',
+              color: '#ffffff',
+              borderColor: '#0f766e',
+              fontWeight: 700,
+              boxShadow: '0 2px 8px rgba(13, 148, 136, 0.3)',
+            }}
+            onClick={() => openProntuarioModal()}
+            title="Marcar implante/planejamento diretamente no Prontuário do Paciente com observações clínicas"
+          >
+            <ClipboardCheck size={14} /> Marcar no Prontuário
+          </button>
+
           <span title="Motor CAD local" style={{ ...S.btn(cad === 'online'), cursor: 'pointer' }} onClick={checkCad}>
             <Cpu size={14} /> CAD: {cad === 'online' ? 'online' : cad === 'checking' ? '...' : 'offline'}
           </span>
@@ -803,7 +925,10 @@ export default function ScanPlanner() {
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button style={S.btn(false)} onClick={() => dicomFileRef.current?.click()} title="Abrir arquivo(s) DICOM ou .ZIP completo">
-                  <FolderOpen size={13} /> Abrir Tomografia (.DCM / .ZIP)
+                  <FolderOpen size={13} /> Arquivo (.DCM / .ZIP)
+                </button>
+                <button style={S.btn(false)} onClick={() => folderRef.current?.click()} title="Selecionar uma pasta inteira com as centenas de fatias da tomografia">
+                  <FolderUp size={13} /> Pasta Tomografia
                 </button>
                 {dicomVolume && (
                   <button
@@ -922,9 +1047,12 @@ export default function ScanPlanner() {
                   <div style={{ fontSize: 12.5, maxWidth: 360, margin: '8px auto 14px' }}>
                     Abra um arquivo <code>.zip</code> da tomografia ou arquivos <code>.dcm</code> para visualizar os cortes MPR e superpor com o scan STL.
                   </div>
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
                     <button style={S.btn(true)} onClick={() => dicomFileRef.current?.click()}>
                       <FolderOpen size={14} /> Abrir Arquivo (.DCM / .ZIP)
+                    </button>
+                    <button style={S.btn(false)} onClick={() => folderRef.current?.click()}>
+                      <FolderUp size={14} /> Selecionar Pasta Tomografia
                     </button>
                   </div>
                 </div>
@@ -953,6 +1081,9 @@ export default function ScanPlanner() {
             <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 10 }}>
               <button style={S.btn(false)} onClick={() => fileRef.current?.click()} title="Abrir arquivos de superfície STL/PLY ou Tomografia ZIP">
                 <FolderOpen size={14} /> Abrir Arquivos (.STL / .PLY / .ZIP)
+              </button>
+              <button style={S.btn(false)} onClick={() => folderRef.current?.click()} title="Selecionar pasta inteira da tomografia">
+                <FolderUp size={14} /> Pasta TC
               </button>
               <button style={S.btn(tool === 'navegar')} onClick={() => setTool('navegar')}>
                 <MousePointer2 size={14} /> Navegar
@@ -1002,8 +1133,9 @@ export default function ScanPlanner() {
               </div>
             )}
 
-            <input ref={fileRef} type="file" accept=".stl,.ply,.dcm,.dicom,.zip" multiple hidden onChange={(e) => { loadFiles(e.target.files); e.target.value = ''; }} />
-            <input ref={dicomFileRef} type="file" accept=".dcm,.dicom,.zip" multiple hidden onChange={(e) => { loadFiles(e.target.files); e.target.value = ''; }} />
+            <input ref={fileRef} type="file" accept=".stl,.ply,.dcm,.dicom,.ima,.zip" multiple hidden onChange={(e) => { loadFiles(e.target.files); e.target.value = ''; }} />
+            <input ref={dicomFileRef} type="file" accept=".dcm,.dicom,.ima,.zip" multiple hidden onChange={(e) => { loadFiles(e.target.files); e.target.value = ''; }} />
+            <input ref={folderRef} type="file" webkitdirectory="" directory="" multiple hidden onChange={(e) => { loadFiles(e.target.files); e.target.value = ''; }} />
           </div>
         )}
 
@@ -1111,7 +1243,16 @@ export default function ScanPlanner() {
                       </button>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6 }}>Ø {i.diameter} × {i.length} mm · inclinação {i.tilt.toFixed(1)}°</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>({i.pos.map((v) => v.toFixed(1)).join(', ')})</div>
+                    <div style={{ ...S.row, marginTop: 6, justifyContent: 'space-between' }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>({i.pos.map((v) => v.toFixed(1)).join(', ')})</div>
+                      <button
+                        style={{ ...S.btn(false), padding: '2px 7px', fontSize: 11, color: '#0d9488', borderColor: '#0d9488' }}
+                        onClick={(e) => { e.stopPropagation(); openProntuarioModal(i); }}
+                        title="Transfere e marca este implante no prontuário do paciente com observações clínicas"
+                      >
+                        <ClipboardCheck size={12} /> Prontuário
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {sel && (
@@ -1125,6 +1266,12 @@ export default function ScanPlanner() {
                         {IMPLANT_L.map((d) => <option key={d} value={d}>{d} mm</option>)}
                       </select>
                     </div>
+                    <button
+                      style={{ ...S.btn(true), background: '#0d9488', color: '#fff', borderColor: '#0f766e', marginTop: 10, width: '100%', justifyContent: 'center' }}
+                      onClick={() => openProntuarioModal(sel)}
+                    >
+                      <ClipboardCheck size={14} /> Marcar este Implante no Prontuário
+                    </button>
                     <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
                       O implante é sincronizado com as fatias da tomografia. Use Mover/Girar no 3D para ajustar a profundidade no osso.
                     </div>
@@ -1208,6 +1355,206 @@ export default function ScanPlanner() {
         </div>
 
       </div>
+
+      {/* ========================================================================= */}
+      {/* MODAL: MARCAR DO SCAN/TOMOGRAFIA PARA O PRONTUÁRIO DO PACIENTE            */}
+      {/* ========================================================================= */}
+      {prontuarioModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100000,
+            padding: 16,
+          }}
+          onClick={() => setProntuarioModalOpen(false)}
+        >
+          <div
+            style={{
+              background: 'var(--surface-solid)',
+              border: '1px solid var(--border)',
+              borderRadius: 14,
+              width: '100%',
+              maxWidth: 520,
+              boxShadow: '0 24px 48px rgba(0,0,0,0.6)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(13, 148, 136, 0.08)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 8, background: '#0d9488', display: 'grid', placeItems: 'center', color: '#fff' }}>
+                  <ClipboardCheck size={18} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Marcar no Prontuário do Paciente</h3>
+                  <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Transfira os dados do 3D/Tomografia para a ficha clínica</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setProntuarioModalOpen(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', padding: 4 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '80vh', overflowY: 'auto' }}>
+              {/* Paciente */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>
+                  PACIENTE *
+                </label>
+                <select
+                  style={{ ...S.input, fontWeight: 600 }}
+                  value={patientId}
+                  onChange={(e) => setPatientId(e.target.value)}
+                >
+                  <option value="">— Selecione o paciente —</option>
+                  {state.patients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.cpf ? `(${p.cpf})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Dente e Procedimento */}
+              <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>
+                    DENTE (FDI)
+                  </label>
+                  <select
+                    style={{ ...S.input, fontWeight: 700, color: 'var(--brand)' }}
+                    value={targetTooth}
+                    onChange={(e) => setTargetTooth(Number(e.target.value))}
+                  >
+                    {[
+                      ...PERMANENT.upper[0], ...PERMANENT.upper[1],
+                      ...PERMANENT.lower[0], ...PERMANENT.lower[1],
+                    ].map((t) => (
+                      <option key={t} value={t}>
+                        #{t} — {toothName(t).split(' ')[0]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>
+                    PROCEDIMENTO
+                  </label>
+                  <select
+                    style={S.input}
+                    value={targetProcedure}
+                    onChange={(e) => setTargetProcedure(e.target.value)}
+                  >
+                    <optgroup label="Implantodontia">
+                      <option value="p_imp_1">Instalação de implante osseointegrável</option>
+                      <option value="p_imp_2">Enxerto ósseo particulado + membrana</option>
+                      <option value="p_imp_3">Prótese sobre implante (coroa)</option>
+                    </optgroup>
+                    <optgroup label="Cirurgia">
+                      <option value="p_cir_aprf">APRF / I-PRF fibrina leucoplaquetária</option>
+                      <option value="p_cir_apic">Apicectomia com retrobturação</option>
+                      <option value="p_cir_vest">Aumento de vestíbulo</option>
+                      <option value="p_cir_coroa">Aumento de coroa clínica cirúrgico</option>
+                    </optgroup>
+                    <optgroup label="Outros Procedimentos">
+                      {PROCEDURES.filter((p) => !['Implantodontia', 'Cirurgia'].includes(p.category)).slice(0, 10).map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.category} — {p.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+              </div>
+
+              {/* Observações Clínicas */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>
+                  OBSERVAÇÕES CLÍNICAS DO DENTISTA
+                </label>
+                <textarea
+                  style={{
+                    ...S.input,
+                    minHeight: 85,
+                    resize: 'vertical',
+                    fontFamily: 'inherit',
+                    lineHeight: 1.5,
+                  }}
+                  placeholder="Ex: Implante cônico posicionado no rebordo ósseo com ancoragem apical. Densidade na TC compatível com osso tipo II/III. Necessidade de guia cirúrgico fresado..."
+                  value={clinicalNotes}
+                  onChange={(e) => setClinicalNotes(e.target.value)}
+                />
+                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                  Este campo será gravado com precisão na evolução do prontuário e na ficha do paciente.
+                </span>
+              </div>
+
+              {/* Checkboxes de Integração */}
+              <div style={{ background: 'var(--surface-2)', padding: 12, borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase' }}>
+                  Ações Automáticas no Prontuário
+                </span>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={syncOdonto} onChange={(e) => setSyncOdonto(e.target.checked)} />
+                  <span>Marcar no <b>Odontograma 2D</b> do paciente como planejado</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={syncPlan} onChange={(e) => setSyncPlan(e.target.checked)} />
+                  <span>Adicionar ao <b>Plano de Tratamento / Orçamento</b> do paciente</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={syncEvolution} onChange={(e) => setSyncEvolution(e.target.checked)} />
+                  <span>Registrar na <b>Evolução Clínica</b> com data e hora</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '14px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.1)' }}>
+              {patientId ? (
+                <button
+                  style={{ ...S.btn(false), border: 'none', background: 'none', color: 'var(--brand)', textDecoration: 'underline' }}
+                  onClick={() => navigate(`/pacientes/${patientId}`)}
+                >
+                  <ExternalLink size={13} /> Abrir Prontuário do Paciente
+                </button>
+              ) : <span />}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button style={S.btn(false)} onClick={() => setProntuarioModalOpen(false)}>
+                  Cancelar
+                </button>
+                <button
+                  style={{
+                    ...S.btn(true),
+                    background: '#0d9488',
+                    color: '#ffffff',
+                    borderColor: '#0f766e',
+                    padding: '8px 16px',
+                    fontWeight: 700,
+                  }}
+                  onClick={handleConfirmProntuario}
+                >
+                  <Check size={14} /> Confirmar e Gravar no Prontuário
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

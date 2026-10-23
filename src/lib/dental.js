@@ -1,4 +1,4 @@
-// Constantes clínicas: dentição FDI, faces, condições e catálogo de procedimentos
+// Constantes clínicas: dentição FDI, faces, condições e catálogo completo de procedimentos por especialidade
 
 export const PERMANENT = {
   upper: [
@@ -94,34 +94,92 @@ export const CONDITIONS = {
   ausente: { label: 'Ausente', color: '#64748b', bg: '#f1f5f9', border: '#e2e8f0', level: 'tooth', icon: 'circle' },
   extracao: { label: 'Extração', color: '#9333ea', bg: '#f3e8ff', border: '#e9d5ff', level: 'tooth', icon: 'x' },
   outros: { label: 'Outros', color: '#059669', bg: '#ecfdf5', border: '#a7f3d0', level: 'tooth', icon: 'plus' },
-  // Compatibilidade com apontamentos anteriores
   canal: { label: 'Tratamento de Canal', color: '#9333ea', bg: '#f3e8ff', border: '#e9d5ff', level: 'tooth', icon: 'dot' },
   selante: { label: 'Selante', color: '#059669', bg: '#ecfdf5', border: '#a7f3d0', level: 'face', icon: 'dot' },
   coroa: { label: 'Coroa / Prótese', color: '#d97706', bg: '#fef3c7', border: '#fde68a', level: 'tooth', icon: 'dot' },
-  implante: { label: 'Implante', color: '#475569', bg: '#f1f5f9', border: '#cbd5e1', level: 'tooth', icon: 'dot' },
+  implante: { label: 'Implante', color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe', level: 'tooth', icon: 'dot' },
   fratura: { label: 'Fratura', color: '#ea580c', bg: '#ffedd5', border: '#fed7aa', level: 'face', icon: 'dot' },
 };
 
-export const PROCEDURES = [
-  { id: 'p_aval', name: 'Consulta de avaliação', category: 'Clínico geral', price: 150, duration: 30 },
-  { id: 'p_prof', name: 'Profilaxia e limpeza', category: 'Prevenção', price: 180, duration: 45, materials: [{ item: 'i_luva', qty: 2 }, { item: 'i_pasta', qty: 1 }] },
-  { id: 'p_rasp', name: 'Raspagem periodontal (quadrante)', category: 'Periodontia', price: 250, duration: 60, materials: [{ item: 'i_anest', qty: 1 }] },
-  { id: 'p_sel', name: 'Selante', category: 'Prevenção', price: 90, duration: 20, tooth: true, condition: 'selante', faces: true },
-  { id: 'p_res1', name: 'Restauração em resina (1 face)', category: 'Dentística', price: 180, duration: 40, tooth: true, condition: 'restauracao', faces: true, materials: [{ item: 'i_resina', qty: 1 }, { item: 'i_anest', qty: 1 }] },
-  { id: 'p_res2', name: 'Restauração em resina (2+ faces)', category: 'Dentística', price: 260, duration: 60, tooth: true, condition: 'restauracao', faces: true, materials: [{ item: 'i_resina', qty: 2 }, { item: 'i_anest', qty: 1 }] },
-  { id: 'p_fac', name: 'Faceta em resina', category: 'Estética', price: 450, duration: 60, tooth: true, condition: 'restauracao', faces: true, materials: [{ item: 'i_resina', qty: 2 }] },
-  { id: 'p_endo1', name: 'Endodontia unirradicular', category: 'Endodontia', price: 650, duration: 90, tooth: true, condition: 'canal', materials: [{ item: 'i_lima', qty: 1 }, { item: 'i_anest', qty: 2 }] },
-  { id: 'p_endo3', name: 'Endodontia molar', category: 'Endodontia', price: 1100, duration: 120, tooth: true, condition: 'canal', materials: [{ item: 'i_lima', qty: 2 }, { item: 'i_anest', qty: 2 }] },
-  { id: 'p_coroa', name: 'Coroa em porcelana', category: 'Prótese', price: 1800, duration: 60, tooth: true, condition: 'coroa' },
-  { id: 'p_impl', name: 'Implante dentário', category: 'Implantodontia', price: 3200, duration: 120, tooth: true, condition: 'implante', materials: [{ item: 'i_impl', qty: 1 }, { item: 'i_anest', qty: 3 }] },
-  { id: 'p_ext', name: 'Extração simples', category: 'Cirurgia', price: 220, duration: 40, tooth: true, condition: 'extracao', materials: [{ item: 'i_anest', qty: 1 }, { item: 'i_fio', qty: 1 }] },
-  { id: 'p_siso', name: 'Extração de siso', category: 'Cirurgia', price: 450, duration: 60, tooth: true, condition: 'extracao', materials: [{ item: 'i_anest', qty: 2 }, { item: 'i_fio', qty: 1 }] },
-  { id: 'p_clar', name: 'Clareamento a laser', category: 'Estética', price: 900, duration: 90 },
-  { id: 'p_orto', name: 'Manutenção ortodôntica', category: 'Ortodontia', price: 200, duration: 30 },
-  { id: 'p_ptot', name: 'Prótese total', category: 'Prótese', price: 2500, duration: 60 },
+// Especialidades odontológicas
+export const SPECIALTIES = [
+  'Todas',
+  'Cirurgia',
+  'Dentística',
+  'Diagnóstico',
+  'Endodontia',
+  'Implantodontia',
+  'Prótese',
+  'Periodontia',
+  'Ortodontia',
 ];
 
-export const procById = (id) => PROCEDURES.find((p) => p.id === id);
+// Catálogo expandido de procedimentos organizados por especialidade médica
+export const PROCEDURES = [
+  // 1. Cirurgia
+  { id: 'p_ext', name: 'Extração simples', category: 'Cirurgia', price: 220, duration: 40, tooth: true, condition: 'extracao', materials: [{ item: 'i_anest', qty: 1 }] },
+  { id: 'p_siso', name: 'Extração de dente incluso / siso', category: 'Cirurgia', price: 450, duration: 60, tooth: true, condition: 'extracao', materials: [{ item: 'i_anest', qty: 2 }] },
+  { id: 'p_apic', name: 'Apicectomia com obturação retrógrada', category: 'Cirurgia', price: 750, duration: 80, tooth: true, condition: 'tratamento' },
+  { id: 'p_fluor', name: 'Aplicação tópica de flúor', category: 'Cirurgia', price: 120, duration: 30 },
+  { id: 'p_biop_lab', name: 'Biópsia de lábio com envio anatomopatológico', category: 'Cirurgia', price: 380, duration: 45 },
+  { id: 'p_biop_ling', name: 'Biópsia de língua com envio anatomopatológico', category: 'Cirurgia', price: 420, duration: 45 },
+  { id: 'p_aprf', name: 'APRF (Fibrina Rica em Plaquetas / Membrana autóloga)', category: 'Cirurgia', price: 550, duration: 60 },
+  { id: 'p_aum_vest', name: 'Aumento de vestíbulo cirúrgico', category: 'Cirurgia', price: 680, duration: 60 },
+  { id: 'p_fren', name: 'Frenectomia labial / lingual', category: 'Cirurgia', price: 350, duration: 45 },
+  { id: 'p_ulect', name: 'Ulectomia / Ulotomia', category: 'Cirurgia', price: 280, duration: 30 },
+
+  // 2. Dentística & Estética
+  { id: 'p_res1', name: 'Restauração em resina composta (1 face)', category: 'Dentística', price: 180, duration: 40, tooth: true, condition: 'restauracao', faces: true, materials: [{ item: 'i_resina', qty: 1 }, { item: 'i_anest', qty: 1 }] },
+  { id: 'p_res2', name: 'Restauração em resina composta (2+ faces)', category: 'Dentística', price: 260, duration: 60, tooth: true, condition: 'restauracao', faces: true, materials: [{ item: 'i_resina', qty: 2 }, { item: 'i_anest', qty: 1 }] },
+  { id: 'p_res_est', name: 'Restauração estética direta em dente anterior', category: 'Dentística', price: 320, duration: 60, tooth: true, condition: 'restauracao', faces: true },
+  { id: 'p_aum_coroa', name: 'Aumento de coroa clínica', category: 'Dentística', price: 450, duration: 50, tooth: true, condition: 'tratamento' },
+  { id: 'p_clar_laser', name: 'Clareamento dental a laser em consultório', category: 'Dentística', price: 950, duration: 90 },
+  { id: 'p_clar_caseiro', name: 'Clareamento dental caseiro supervisionado com moldeiras', category: 'Dentística', price: 600, duration: 45 },
+  { id: 'p_desg_selet', name: 'Desgaste seletivo / Ajuste oclusal', category: 'Dentística', price: 220, duration: 40, tooth: true },
+  { id: 'p_faceta_res', name: 'Faceta em resina composta direta', category: 'Dentística', price: 480, duration: 60, tooth: true, condition: 'restauracao', faces: true },
+  { id: 'p_faceta_porc', name: 'Faceta / Lente de contato em porcelana', category: 'Dentística', price: 1800, duration: 90, tooth: true, condition: 'coroa' },
+
+  // 3. Diagnóstico
+  { id: 'p_aval', name: 'Consulta de avaliação / Diagnóstico clínico inicial', category: 'Diagnóstico', price: 150, duration: 30 },
+  { id: 'p_retorno', name: 'Consulta de retorno e acompanhamento', category: 'Diagnóstico', price: 80, duration: 20 },
+  { id: 'p_rx_periap', name: 'Radiografia periapical digital', category: 'Diagnóstico', price: 45, duration: 15, tooth: true },
+  { id: 'p_tc_laudo', name: 'Análise e planejamento tomográfico Cone Beam (CBCT)', category: 'Diagnóstico', price: 250, duration: 45 },
+  { id: 'p_foto', name: 'Documentação fotográfica clínica digital', category: 'Diagnóstico', price: 120, duration: 30 },
+
+  // 4. Endodontia
+  { id: 'p_endo1', name: 'Endodontia unirradicular', category: 'Endodontia', price: 650, duration: 90, tooth: true, condition: 'canal', materials: [{ item: 'i_anest', qty: 2 }] },
+  { id: 'p_endo2', name: 'Endodontia birradicular', category: 'Endodontia', price: 850, duration: 90, tooth: true, condition: 'canal', materials: [{ item: 'i_anest', qty: 2 }] },
+  { id: 'p_endo3', name: 'Endodontia molar / multirradicular', category: 'Endodontia', price: 1100, duration: 120, tooth: true, condition: 'canal', materials: [{ item: 'i_anest', qty: 2 }] },
+  { id: 'p_reendo', name: 'Retratamento endodôntico', category: 'Endodontia', price: 1350, duration: 120, tooth: true, condition: 'canal' },
+
+  // 5. Implantodontia
+  { id: 'p_impl', name: 'Implante dentário de titânio (cone morse)', category: 'Implantodontia', price: 2800, duration: 90, tooth: true, condition: 'implante', materials: [{ item: 'i_anest', qty: 3 }] },
+  { id: 'p_impl_guia', name: 'Instalação de implante com Guia Cirúrgico CAD', category: 'Implantodontia', price: 3400, duration: 90, tooth: true, condition: 'implante' },
+  { id: 'p_enx_osseo', name: 'Enxerto ósseo particulado com biomaterial', category: 'Implantodontia', price: 1400, duration: 60, tooth: true },
+  { id: 'p_lev_seio', name: 'Levantamento de seio maxilar (Sinus Lift)', category: 'Implantodontia', price: 2200, duration: 90 },
+
+  // 6. Prótese
+  { id: 'p_coroa', name: 'Coroa total em porcelana pura / zircônia', category: 'Prótese', price: 1800, duration: 60, tooth: true, condition: 'coroa' },
+  { id: 'p_prot_impl', name: 'Prótese fixa unitária sobre implante', category: 'Prótese', price: 2200, duration: 60, tooth: true, condition: 'coroa' },
+  { id: 'p_inlay', name: 'Inlay / Onlay em cerâmica pura', category: 'Prótese', price: 1100, duration: 60, tooth: true, condition: 'restauracao' },
+  { id: 'p_ptot', name: 'Prótese total (dentadura)', category: 'Prótese', price: 2500, duration: 60 },
+  { id: 'p_ppr', name: 'Prótese parcial removível (PPR com grampos)', category: 'Prótese', price: 1900, duration: 60 },
+
+  // 7. Periodontia
+  { id: 'p_prof', name: 'Profilaxia e limpeza supragengival', category: 'Periodontia', price: 180, duration: 45, materials: [{ item: 'i_luva', qty: 2 }] },
+  { id: 'p_rasp', name: 'Raspagem periodontal subgengival (quadrante)', category: 'Periodontia', price: 250, duration: 60, materials: [{ item: 'i_anest', qty: 1 }] },
+  { id: 'p_gengiv', name: 'Gengivoplastia estética / Gengivectomia', category: 'Periodontia', price: 550, duration: 60 },
+  { id: 'p_enx_conj', name: 'Enxerto de tecido conjuntivo subepitelial', category: 'Periodontia', price: 1200, duration: 80 },
+
+  // 8. Ortodontia
+  { id: 'p_doc_orto', name: 'Documentação ortodôntica e cefalometria', category: 'Ortodontia', price: 350, duration: 40 },
+  { id: 'p_orto', name: 'Manutenção mensal de aparelho ortodôntico', category: 'Ortodontia', price: 200, duration: 30 },
+  { id: 'p_alinha', name: 'Planejamento e alinhador transparente', category: 'Ortodontia', price: 4500, duration: 60 },
+];
+
+export const procById = (id, customList = []) => {
+  return [...PROCEDURES, ...(customList || [])].find((p) => p.id === id);
+};
 
 export const PLAN_STATUS = {
   rascunho: { label: 'Rascunho', cls: '' },

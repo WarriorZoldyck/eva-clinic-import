@@ -121,13 +121,13 @@ export default function Patients() {
       color: colorFor(name),
       tags: [],
       anamnesis: {
-        allergies: allergies.trim() || 'Nenhuma',
-        conditions: conditions.trim() || 'Nenhuma',
+        allergies: 'Nenhuma',
+        conditions: 'Nenhuma',
         medications: 'Nenhum',
         smoker: false,
         pregnant: false,
         bleeding: false,
-        complaint: complaint.trim() || 'Avaliação clínica inicial',
+        complaint: 'Consulta inicial de avaliação',
         updatedAt: todayISO(),
       },
     };
@@ -135,7 +135,7 @@ export default function Patients() {
     dispatch({ type: 'ADD_PATIENT', patient: newPatient });
     resetForm();
     setNewModalOpen(false);
-    toast(`Paciente ${newPatient.name} cadastrado com sucesso!`);
+    toast(`Paciente ${newPatient.name} cadastrado com sucesso! Preencha a anamnese e prontuário.`);
     navigate(`/pacientes/${newPatient.id}`);
   };
 
@@ -439,42 +439,11 @@ export default function Patients() {
                   </div>
                 </div>
 
-                <h4 style={{ fontSize: 13, textTransform: 'uppercase', color: 'var(--brand)', letterSpacing: '0.08em', marginTop: 10 }}>
-                  2. Anamnese Inicial & Alertas Médicos
-                </h4>
-
-                <div className="grid g-2">
-                  <div className="field">
-                    <label>Alergias a Medicamentos / Materiais:</label>
-                    <input
-                      type="text"
-                      className="input"
-                      placeholder="Ex: Penicilina, Dipirona, Látex (ou Nenhuma)"
-                      value={allergies}
-                      onChange={(e) => setAllergies(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="field">
-                    <label>Condições Sistêmicas (Hipertensão, Diabetes, etc.):</label>
-                    <input
-                      type="text"
-                      className="input"
-                      placeholder="Ex: Hipertensão, Diabetes ou Nenhuma"
-                      value={conditions}
-                      onChange={(e) => setConditions(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label>Queixa Principal / Motivo da Consulta:</label>
-                  <textarea
-                    className="textarea"
-                    placeholder="Descreva a queixa trazida pelo paciente..."
-                    value={complaint}
-                    onChange={(e) => setComplaint(e.target.value)}
-                  />
+                <div className="callout" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
+                  <Sparkles size={16} color="var(--brand)" />
+                  <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                    A <b>Ficha de Anamnese Completa</b>, histórico médico e odontograma serão preenchidos diretamente na aba exclusiva do paciente após a criação do cadastro.
+                  </span>
                 </div>
               </div>
 

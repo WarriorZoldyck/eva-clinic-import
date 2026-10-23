@@ -222,18 +222,24 @@ export function parseDicomSlice(arrayBuffer, fileName = 'slice.dcm') {
     throw new Error('Não foi possível localizar os dados de imagem deste DICOM.');
   }
 
-  // Extrai PixelData nativo
+  // Extrai PixelData nativo com cópia alinhada em zero (evita RangeError em offsets ímpares)
   let rawPixels;
   const pixelCount = meta.rows * meta.cols * meta.numberOfFrames;
+  const bytesPerPixel = meta.bitsAllocated === 16 ? 2 : 1;
+  const expectedBytes = pixelCount * bytesPerPixel;
+  const availableBytes = Math.max(0, len - meta.pixelDataOffset);
+  const safeLength = Math.min(expectedBytes, availableBytes);
+  const safeSlice = arrayBuffer.slice(meta.pixelDataOffset, meta.pixelDataOffset + safeLength);
 
   if (meta.bitsAllocated === 16) {
+    const intCount = Math.floor(safeSlice.byteLength / 2);
     if (meta.pixelRepresentation === 1) {
-      rawPixels = new Int16Array(arrayBuffer, meta.pixelDataOffset, pixelCount);
+      rawPixels = new Int16Array(safeSlice, 0, intCount);
     } else {
-      rawPixels = new Uint16Array(arrayBuffer, meta.pixelDataOffset, pixelCount);
+      rawPixels = new Uint16Array(safeSlice, 0, intCount);
     }
   } else {
-    rawPixels = new Uint8Array(arrayBuffer, meta.pixelDataOffset, pixelCount);
+    rawPixels = new Uint8Array(safeSlice, 0, safeSlice.byteLength);
   }
 
   return {
