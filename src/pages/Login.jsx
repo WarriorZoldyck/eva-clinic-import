@@ -61,6 +61,11 @@ export default function Login() {
       let res;
       if (activeTab === 'evaos' && loginEva) {
         res = await loginEva(identifier, password);
+        if (!res.success) {
+          // Fallback para conta cadastrada no Eva Clinic
+          const fallbackRes = await login(identifier, password);
+          if (fallbackRes.success) res = fallbackRes;
+        }
       } else {
         res = await login(identifier, password);
       }

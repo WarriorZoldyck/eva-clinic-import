@@ -4,6 +4,7 @@ import { addDays, todayISO, uid } from '../lib/utils';
 import { procById, CONDITIONS } from '../lib/dental';
 import { useAuth } from './AuthContext';
 import { clinicSupabase } from '../lib/supabase';
+import { fetchCloudClinicData, queueCloudSync } from '../lib/clinicSync';
 
 const AppCtx = createContext(null);
 
@@ -292,7 +293,7 @@ export function AppProvider({ children }) {
   const [toasts, setToasts] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem('eva-theme') || 'light');
 
-  // Recarrega o estado quando o usuário ativo mudar (LocalStorage + Supabase clinic_state)
+  // Recarrega o estado quando o usuário ativo mudar (LocalStorage imediato + Nuvem Central persistente)
   useEffect(() => {
     if (!currentUser) return;
 
@@ -302,40 +303,29 @@ export function AppProvider({ children }) {
       return;
     }
 
-    // 1. Carrega imediatamente do cache local para resposta instantânea
+    // 1. Carrega imediatamente do cache local para resposta instantânea sem tela branca
     const local = loadUserData(currentUser);
     dispatch({ type: 'SET_STATE', payload: local });
 
-    // 2. Consulta a nuvem Supabase (clinic_state) para sincronizar dados persistidos
-    clinicSupabase
-      .from('clinic_state')
-      .select('data')
-      .eq('user_id', currentUser.id)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!error && data?.data) {
-          if (isDemoSeedData(data.data)) {
-            // Purga dados de demonstração salvos indevidamente no Supabase para usuário real
-            const clean = createCleanState(currentUser);
-            dispatch({ type: 'SET_STATE', payload: clean });
-            clinicSupabase.from('clinic_state').upsert({
-              user_id: currentUser.id,
-              data: clean,
-              updated_at: new Date().toISOString(),
-            });
-          } else {
-            dispatch({ type: 'SET_STATE', payload: data.data });
-          }
+    // 2. Consulta a nuvem central (evaOsSupabase) para sincronizar dados reais entre qualquer máquina
+    fetchCloudClinicData(currentUser.id, currentUser).then((cloudData) => {
+      if (cloudData && !isDemoSeedData(cloudData)) {
+        dispatch({ type: 'SET_STATE', payload: cloudData });
+        // Atualiza o cache local desta máquina
+        try {
+          localStorage.setItem(`eva-clinic-user-${currentUser.id}`, JSON.stringify(cloudData));
+        } catch {
+          /* ignore */
         }
-      })
-      .catch((err) => {
-        console.warn('Sincronização clinic_state:', err);
-      });
+      }
+    });
   }, [currentUser?.id]);
 
-  // Salva no localStorage com chave individual por usuário e sincroniza com Supabase clinic_state
+  // Salva no localStorage desta máquina e sincroniza na nuvem central para todas as outras máquinas
   useEffect(() => {
-    const isDemo = !currentUser || currentUser.isDemo || currentUser.id === 'usr_admin';
+    if (!currentUser) return;
+
+    const isDemo = currentUser.isDemo || currentUser.id === 'usr_admin';
     const key = isDemo ? 'eva-clinic-demo-v2' : `eva-clinic-user-${currentUser.id}`;
     try {
       localStorage.setItem(key, JSON.stringify(state));
@@ -343,19 +333,9 @@ export function AppProvider({ children }) {
       /* ignore */
     }
 
-    // Se for um usuário real conectado, sincroniza no Supabase clinic_state
-    if (!isDemo && currentUser) {
-      clinicSupabase
-        .from('clinic_state')
-        .upsert({
-          user_id: currentUser.id,
-          data: state,
-          updated_at: new Date().toISOString(),
-        })
-        .then(({ error }) => {
-          if (error) console.warn('Aviso ao sincronizar clinic_state no Supabase:', error.message);
-        })
-        .catch(() => {});
+    // Sincroniza dados na nuvem central caso seja um usuário real
+    if (!isDemo && currentUser?.id) {
+      queueCloudSync(currentUser.id, state);
     }
   }, [state, currentUser]);
 
