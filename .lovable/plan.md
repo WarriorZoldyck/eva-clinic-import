@@ -1,5 +1,10 @@
 # Guia Cirúrgico estilo exoplan — tomografia + STL no mesmo espaço
 
+## O que os seus arquivos mostram
+- **Tomografia (dicon_EVA.zip, 197 MB):** exportação de tomógrafo Vatech. São 448 arquivos `.dcm`, um por fatia (o "quebra-cabeça"). Cada fatia tem 600x600 pixels de 0,2 mm, e as fatias ficam a 0,2 mm uma da outra: um bloco de 12 x 12 x 9 cm. As fatias vêm em ordem invertida (a primeira é a de cima), e a ordem certa vem da posição gravada em cada uma. O ZIP também traz pastas `Cache`, `Analyses` e arquivos `.xml/.npj`, que são do programa do tomógrafo e serão ignorados.
+- **Volume total:** cerca de 160 milhões de pontos (uns 320 MB de memória). No navegador, a tomografia é reduzida para 0,4 mm (300x300x224), o que basta para planejar e não trava a tela.
+- **STLs (CEREC/inLab):** arcada inferior (818 mil triângulos) e superior (622 mil), em milímetros, mas em outro sistema de posição: o scanner não "sabe" onde a tomografia está. Por isso o alinhamento por pontos (item 4) é obrigatório, e não opcional. Para o alinhamento ficar rápido, uso uma cópia simplificada da malha no cálculo e mostro a original na tela.
+
 ## Problemas atuais
 - A tomografia só aparece como cortes 2D; o osso 3D depende de um servidor externo que não está ligado, então STL e tomografia nunca ficam juntos no 3D.
 - Pastas com centenas de arquivos .dcm (ou ZIP) são lidas, mas a ordem/espaçamento pode ficar errada e travar em exames grandes.
