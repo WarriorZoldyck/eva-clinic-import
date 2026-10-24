@@ -187,7 +187,7 @@ export function createSeed() {
     {
       id: 'tp3', patientId: 'pt3', professionalId: 'pr1', title: 'Estética do sorriso', status: 'aprovado',
       createdAt: addDays(today, -8), approvedAt: addDays(today, -6), discount: 10, installments: 4, method: 'Pix',
-      items: [item('p_clar'), item('p_fac', 11, ['V']), item('p_fac', 21, ['V'])],
+      items: [item('p_clar_laser'), item('p_faceta_porc', 11, ['V']), item('p_faceta_porc', 21, ['V'])],
     },
     {
       id: 'tp4', patientId: 'pt5', professionalId: 'pr4', title: 'Endodontia 46', status: 'concluido',
