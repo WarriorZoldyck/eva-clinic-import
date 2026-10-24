@@ -37,6 +37,54 @@ export default function MprViewport({
   const [W, H, D] = volume.dims;
   const [dx, dy, dz] = volume.spacing;
 
+  // Converte mm (espaço 3D) para voxel e projeta cada implante (inclinado) no corte
+  const drawImplantsOn = (ctx, view, sliceIdx) => {
+    const toVox = (p) => [W / 2 + p[0] / dx, H / 2 - p[1] / dy, D / 2 + p[2] / dz];
+    implants.forEach((imp) => {
+      const ax = imp.axis || [0, 0, -1];
+      const a = imp.pos;
+      const b = [a[0] + ax[0] * imp.length, a[1] + ax[1] * imp.length, a[2] + ax[2] * imp.length];
+      const va = toVox(a), vb = toVox(b);
+      const k = view === 'axial' ? 2 : view === 'coronal' ? 1 : 0;
+      const sp = [dx, dy, dz][k];
+      const map = (v) => (view === 'coronal' ? [v[0], D - v[2]] : [v[1], D - v[2]]);
+      const r = imp.diameter / 2;
+      if (view === 'axial') {
+        const t = (sliceIdx - va[2]) / ((vb[2] - va[2]) || 1e-6);
+        if (t < 0 || t > 1) return;
+        const c = [va[0] + (vb[0] - va[0]) * t, va[1] + (vb[1] - va[1]) * t];
+        ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(c[0], c[1], Math.max(2, r / dx), 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = 'rgba(249,115,22,0.6)'; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.arc(c[0], c[1], (r + 2) / dx, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+        return;
+      }
+      const minK = Math.min(va[k], vb[k]), maxK = Math.max(va[k], vb[k]);
+      const distMm = sliceIdx < minK ? (minK - sliceIdx) * sp : sliceIdx > maxK ? (sliceIdx - maxK) * sp : 0;
+      if (distMm > r + 2) return;
+      const pa = map(va), pb = map(vb);
+      const vx = pb[0] - pa[0], vy = pb[1] - pa[1];
+      const len = Math.hypot(vx, vy) || 1;
+      const nx = -vy / len, ny = vx / len;
+      const px = view === 'coronal' ? dx : dy;
+      const outline = (off) => {
+        ctx.beginPath();
+        ctx.moveTo(pa[0] + nx * off, pa[1] + ny * off);
+        ctx.lineTo(pb[0] + nx * off, pb[1] + ny * off);
+        ctx.lineTo(pb[0] - nx * off, pb[1] - ny * off);
+        ctx.lineTo(pa[0] - nx * off, pa[1] - ny * off);
+        ctx.closePath();
+      };
+      ctx.fillStyle = distMm <= r ? 'rgba(251,191,36,0.35)' : 'rgba(251,191,36,0.12)';
+      ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.2;
+      outline(r / px); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = 'rgba(249,115,22,0.6)'; ctx.setLineDash([3, 3]);
+      outline((r + 2) / px); ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  };
+
   // Renderiza Corte Axial (Z)
   useEffect(() => {
     if (!axialCanvasRef.current || !volume) return;
