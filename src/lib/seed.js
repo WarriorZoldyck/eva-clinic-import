@@ -90,7 +90,7 @@ export function createSeed() {
 
   // ---------- Agenda ----------
   const appointments = [];
-  const quick = ['p_aval', 'p_prof', 'p_res1', 'p_res2', 'p_endo1', 'p_orto', 'p_rasp', 'p_clar', 'p_coroa', 'p_ext'];
+  const quick = ['p_aval', 'p_prof', 'p_res1', 'p_res2', 'p_endo1', 'p_orto', 'p_rasp', 'p_clar_laser', 'p_coroa', 'p_ext'];
   for (let d = -45; d <= 14; d++) {
     const date = addDays(today, d);
     const wd = new Date(date + 'T12:00:00').getDay();
@@ -99,7 +99,7 @@ export function createSeed() {
     const used = {};
     for (let k = 0; k < perDay; k++) {
       const prof = PROFESSIONALS[k % PROFESSIONALS.length];
-      const proc = procById(prof.id === 'pr3' ? (r() > 0.4 ? 'p_orto' : 'p_aval') : prof.id === 'pr4' ? pick(['p_endo1', 'p_endo3', 'p_aval']) : pick(quick));
+      const proc = procById(prof.id === 'pr3' ? (r() > 0.4 ? 'p_orto' : 'p_aval') : prof.id === 'pr4' ? pick(['p_endo1', 'p_endo3', 'p_aval']) : pick(quick)) || procById('p_aval');
       const dur = Math.max(30, Math.round(proc.duration / 30) * 30);
       let start = 8 * 60 + Math.floor(r() * 18) * 30;
       used[prof.id] = used[prof.id] || [];
