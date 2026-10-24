@@ -57,7 +57,7 @@ const guessRole = (name) => {
 };
 
 const S = {
-  panel: { background: 'var(--surface-solid)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' },
+  panel: { color: 'var(--text)', background: 'var(--surface-solid)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' },
   btn: (on) => ({
     display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 11px',
     borderRadius: 'var(--radius-sm)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',

@@ -1,0 +1,2 @@
+- Surgical guide CBCT parsing and bone surface extraction run in a Web Worker (`src/lib/cbct.worker.js` via `cbctWorkerClient.js`); never call them on the main thread — large scans freeze the tab.
+- Scan-planner state (implants + model transforms) persists per patient through `SAVE_SURGICAL_GUIDE` with `toothNumber: 'planner'`; heavy STL/DICOM files are never stored.
