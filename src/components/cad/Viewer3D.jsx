@@ -44,7 +44,11 @@ export default function Viewer3D({
     coronalPlane: null,
     sagittalPlane: null,
     regMarkersGroup: null,
+    implMap: new Map(),
   }).current;
+  const cbRef = useRef({});
+  cbRef.current = { onTransformChange };
+  const downRef = useRef(null);
 
   // Inicializa Cena Three.js
   useEffect(() => {
@@ -61,7 +65,7 @@ export default function Viewer3D({
 
     const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 2500);
     camera.up.set(0, 0, 1);
-    camera.position.set(0, -140, 100);
+    camera.position.set(0, -230, 150);
     scene.add(camera);
 
     scene.add(new THREE.HemisphereLight('#ffffff', '#334155', 0.8));
@@ -83,8 +87,17 @@ export default function Viewer3D({
     tc.addEventListener('dragging-changed', (e) => {
       controls.enabled = !e.value;
     });
-    tc.addEventListener('objectChange', () => {
-      onTransformChange?.();
+    tc.addEventListener('mouseUp', () => {
+      const obj = tc.object;
+      if (!obj) return;
+      const info = obj.userData.implantId
+        ? { kind: 'implant', id: obj.userData.implantId }
+        : { kind: 'model', id: obj.userData.modelId };
+      cbRef.current.onTransformChange?.({
+        ...info,
+        position: obj.position.toArray(),
+        quaternion: obj.quaternion.toArray(),
+      });
     });
     scene.add(tc.getHelper());
 
@@ -301,10 +314,62 @@ export default function Viewer3D({
     });
   }, [registrationPoints, E]);
 
+  // Implantes 3D (corpo + anilha), eixo local -Y = direção apical
+  useEffect(() => {
+    if (!E.scene) return;
+    const ids = new Set(implants.map((i) => i.id));
+    E.implMap.forEach((g, id) => {
+      if (!ids.has(id)) {
+        E.scene.remove(g);
+        g.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+        E.implMap.delete(id);
+      }
+    });
+    implants.forEach((imp) => {
+      let g = E.implMap.get(imp.id);
+      const sig = `${imp.diameter}|${imp.length}|${imp.id === selectedImplantId}`;
+      if (g && g.userData.sig !== sig) {
+        E.scene.remove(g);
+        g.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+        g = null;
+      }
+      if (!g) {
+        g = new THREE.Group();
+        g.userData = { implantId: imp.id, sig };
+        const sel = imp.id === selectedImplantId;
+        const body = new THREE.Mesh(
+          new THREE.CylinderGeometry(imp.diameter / 2, imp.diameter / 2 * 0.8, imp.length, 24),
+          new THREE.MeshStandardMaterial({ color: sel ? '#fbbf24' : '#cbd5e1', metalness: 0.6, roughness: 0.3 })
+        );
+        body.position.y = -imp.length / 2;
+        body.userData.implantId = imp.id;
+        const sleeve = new THREE.Mesh(
+          new THREE.CylinderGeometry(3.75, 3.75, 5, 24, 1, true),
+          new THREE.MeshStandardMaterial({ color: '#94a3b8', metalness: 0.8, roughness: 0.25, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })
+        );
+        sleeve.position.y = 2.5 + 2;
+        sleeve.userData.implantId = imp.id;
+        g.add(body, sleeve);
+        E.scene.add(g);
+        E.implMap.set(imp.id, g);
+      }
+      g.position.fromArray(imp.pos);
+      const axis = new THREE.Vector3(...(imp.axis || [0, 0, -1])).normalize();
+      g.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), axis);
+      g.updateMatrixWorld(true);
+    });
+  }, [implants, selectedImplantId, E]);
+
   // Seleção e Gizmo do Three.js
   useEffect(() => {
     if (!E.tc) return;
 
+    if (selectedImplantId && E.implMap.get(selectedImplantId) && tool !== 'alinhamento') {
+      E.tc.attach(E.implMap.get(selectedImplantId));
+      E.tc.setMode(gizmoMode || 'translate');
+      E.tc.setSpace(gizmoMode === 'rotate' ? 'local' : 'world');
+      return;
+    }
     if (selectedModelId) {
       const mesh = E.meshMap.get(selectedModelId);
       if (mesh) {
@@ -315,11 +380,15 @@ export default function Viewer3D({
       }
     }
     E.tc.detach();
-  }, [selectedModelId, gizmoMode, E]);
+  }, [selectedModelId, selectedImplantId, implants, tool, gizmoMode, E]);
 
   // Clique na cena 3D (Raycasting para dente, implante ou ponto de alinhamento)
   const handleClick = (e) => {
     if (!E.camera || !E.scene || !hostRef.current) return;
+    // Ignora o clique que encerra um arraste (girar câmera / mover gizmo)
+    const d = downRef.current;
+    if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
+    if (E.tc?.dragging) return;
     const rect = hostRef.current.getBoundingClientRect();
     const mouse = new THREE.Vector2(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -329,14 +398,24 @@ export default function Viewer3D({
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, E.camera);
 
+    const implHits = raycaster.intersectObjects([...E.implMap.values()], true);
+    if (implHits.length && tool !== 'alinhamento' && !isRegistering) {
+      onSelectImplant?.(implHits[0].object.userData.implantId);
+      return;
+    }
+
     const targetMeshes = [...E.meshMap.values()];
     if (E.boneMesh && E.boneMesh.visible) targetMeshes.push(E.boneMesh);
 
     const intersects = raycaster.intersectObjects(targetMeshes, false);
     if (intersects.length > 0) {
       const hit = intersects[0];
+      const worldNormal = hit.face
+        ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
+        : new THREE.Vector3(0, 0, 1);
+      if (worldNormal.dot(raycaster.ray.direction) > 0) worldNormal.negate();
       onSceneClick?.({
-        hit,
+        hit: { ...hit, normal: worldNormal },
         screenPos: { x: e.clientX, y: e.clientY },
       });
     }
@@ -344,7 +423,7 @@ export default function Viewer3D({
 
   const setViewAngle = (view) => {
     if (!E.camera || !E.controls) return;
-    const dist = 140;
+    const dist = 230;
     if (view === 'oclusal') E.camera.position.set(0, 0, dist);
     else if (view === 'frontal') E.camera.position.set(0, -dist, 0);
     else if (view === 'esquerda') E.camera.position.set(-dist, 0, 0);
@@ -408,6 +487,7 @@ export default function Viewer3D({
         ref={hostRef}
         style={{ flex: 1, position: 'relative', cursor: tool === 'navegar' ? 'default' : 'crosshair' }}
         onClick={handleClick}
+        onPointerDown={(e) => { downRef.current = { x: e.clientX, y: e.clientY }; }}
       />
 
       {/* Barra Flutuante de Câmera */}

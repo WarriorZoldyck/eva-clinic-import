@@ -75,6 +75,9 @@ export async function loadDicomFiles(inputFiles, onProgress = () => {}) {
   let rescaleSlope = 1;
   let pixelRepresentation = 0;
 
+  let sliceNormal = null;
+  let unsupported = null;
+
   for (let i = 0; i < dicomBuffers.length; i++) {
     try {
       const byteArray = dicomBuffers[i].data;
@@ -83,8 +86,26 @@ export async function loadDicomFiles(inputFiles, onProgress = () => {}) {
       const posStr = dataSet.string('x00200032'); // ImagePositionPatient
       if (!posStr) continue;
 
+      const ts = dataSet.string('x00020010') || '';
+      if (/^1\.2\.840\.10008\.1\.2\.(4\.|5$|2$)/.test(ts.trim())) {
+        unsupported = ts.trim();
+        continue;
+      }
+
       const posParts = posStr.split('\\').map(Number);
-      const posZ = posParts.length === 3 ? posParts[2] : i * 0.2;
+      if (!sliceNormal) {
+        const o = (dataSet.string('x00200037') || '').split('\\').map(Number);
+        if (o.length === 6 && o.every(Number.isFinite)) {
+          const n = [o[1] * o[5] - o[2] * o[4], o[2] * o[3] - o[0] * o[5], o[0] * o[4] - o[1] * o[3]];
+          const len = Math.hypot(...n) || 1;
+          sliceNormal = n.map((v) => v / len);
+        } else {
+          sliceNormal = [0, 0, 1];
+        }
+      }
+      const posZ = posParts.length === 3
+        ? posParts[0] * sliceNormal[0] + posParts[1] * sliceNormal[1] + posParts[2] * sliceNormal[2]
+        : i * 0.2;
 
       if (!rows) {
         rows = dataSet.uint16('x00280010') || 512;
@@ -121,18 +142,24 @@ export async function loadDicomFiles(inputFiles, onProgress = () => {}) {
   }
 
   if (parsedSlices.length === 0) {
+    if (unsupported) {
+      throw new Error('Esta tomografia está gravada em formato compactado, que ainda não é suportado. Exporte do tomógrafo como DICOM sem compressão.');
+    }
     throw new Error('Nenhuma fatia tomográfica legível pôde ser interpretada.');
   }
 
-  // 3. Ordenação física espacial por ImagePositionPatient (Z real do paciente)
+  // 3. Ordenação física espacial ao longo da normal do corte (considera inclinação do exame)
   parsedSlices.sort((a, b) => a.posZ - b.posZ);
 
-  // Espaçamento real entre fatias
+  // Espaçamento real entre fatias (mediana das diferenças)
   let sliceSpacingZ = 0.2;
   if (parsedSlices.length > 1) {
-    const diffZ = Math.abs(parsedSlices[parsedSlices.length - 1].posZ - parsedSlices[0].posZ);
-    sliceSpacingZ = diffZ / (parsedSlices.length - 1) || 0.2;
+    const diffs = [];
+    for (let k = 1; k < parsedSlices.length; k++) diffs.push(Math.abs(parsedSlices[k].posZ - parsedSlices[k - 1].posZ));
+    diffs.sort((a, b) => a - b);
+    sliceSpacingZ = diffs[Math.floor(diffs.length / 2)] || 0.2;
   }
+
 
   // 4. Downsample adaptativo (0.4mm) para fluidez absoluta em 60 FPS no navegador
   onProgress({ phase: 'building', percent: 80, message: 'Construindo volume tomográfico otimizado...' });

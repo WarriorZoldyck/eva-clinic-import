@@ -24,8 +24,11 @@ import {
 import { useApp } from '../store/AppContext';
 import { uid, todayISO } from '../lib/utils';
 import { PROCEDURES, toothName, PERMANENT } from '../lib/dental';
-import { loadDicomFiles } from '../lib/dicomVolumeLoader';
-import { generateBoneIsosurface } from '../lib/marchingCubes';
+import { loadDicomInWorker, boneInWorker } from '../lib/cbctWorkerClient';
+import { computeArchFrame, estimateFdiFromFrame } from '../lib/archFrame';
+import { icpRefine } from '../lib/registration';
+import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
+import { useAuth } from '../store/AuthContext';
 import MprViewport from '../components/cad/MprViewport';
 import Viewer3D from '../components/cad/Viewer3D';
 import RegistrationPanel from '../components/cad/RegistrationPanel';
@@ -54,7 +57,7 @@ const guessRole = (name) => {
 };
 
 const S = {
-  panel: { background: 'var(--surface-solid)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' },
+  panel: { color: 'var(--text)', background: 'var(--surface-solid)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' },
   btn: (on) => ({
     display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 11px',
     borderRadius: 'var(--radius-sm)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
@@ -87,6 +90,7 @@ const saveBlob = (data, name, type) => {
 
 export default function ScanPlanner() {
   const { state, dispatch, toast } = useApp();
+  const { user } = useAuth() || {};
   const navigate = useNavigate();
 
   const containerRef = useRef(null);
@@ -108,7 +112,7 @@ export default function ScanPlanner() {
 
   // Estados do Osso 3D em JavaScript local (Marching Cubes)
   const [boneGeometry, setBoneGeometry] = useState(null);
-  const [boneThreshold, setBoneThreshold] = useState(400);
+  const [boneThreshold, setBoneThreshold] = useState(700);
   const [boneOpacity, setBoneOpacity] = useState(0.85);
   const [isExtractingBone, setIsExtractingBone] = useState(false);
 
@@ -136,16 +140,44 @@ export default function ScanPlanner() {
 
   // Estados do Guia Cirúrgico (CAD)
   const [guideParams, setGuideParams] = useState({ base: '', thickness: 2.5, gap: 0.1, hole_d: 5, sleeve_od: 7.5, sleeve_h: 5, radius: 14 });
-  const [cad, setCad] = useState('checking');
-  const [busy, setBusy] = useState(false);
-  const [lastGuide, setLastGuide] = useState(null);
 
-  // Verifica saúde do CAD Server (opcional para exportação física de guia)
-  const checkCad = useCallback(() => {
-    setCad('checking');
-    fetch(`${CAD_URL}/health`).then((r) => (r.ok ? setCad('online') : setCad('offline'))).catch(() => setCad('offline'));
-  }, []);
-  useEffect(() => { checkCad(); }, [checkCad]);
+  // ---------------------------------------------------------------------------
+  // Planejamento salvo por paciente (implantes + posição dos modelos)
+  // ---------------------------------------------------------------------------
+  const savedTransformsRef = useRef({});
+  const skipSaveRef = useRef(false);
+  useEffect(() => {
+    if (!patientId) return;
+    const g = (state.surgicalGuides || []).find((x) => x.patientId === patientId && x.toothNumber === 'planner');
+    skipSaveRef.current = true;
+    savedTransformsRef.current = g?.transforms || {};
+    setImplants(g?.implants || []);
+    setModels((prev) => prev.map((m) => {
+      const t = savedTransformsRef.current[m.name];
+      return t ? { ...m, position: t.position, quaternion: t.quaternion } : m;
+    }));
+    if (g) toast('Planejamento salvo deste paciente carregado.', 'info');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientId]);
+
+  useEffect(() => {
+    if (!patientId) return;
+    if (skipSaveRef.current) { skipSaveRef.current = false; return; }
+    const t = setTimeout(() => {
+      const transforms = { ...savedTransformsRef.current };
+      models.forEach((m) => { transforms[m.name] = { position: m.position, quaternion: m.quaternion }; });
+      savedTransformsRef.current = transforms;
+      dispatch({
+        type: 'SAVE_SURGICAL_GUIDE',
+        guide: { patientId, toothNumber: 'planner', kind: 'planner', implants, transforms },
+      });
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [patientId, implants, models, dispatch]);
+
+  const modelMatrix = (m) => new THREE.Matrix4().compose(
+    new THREE.Vector3(...m.position), new THREE.Quaternion(...m.quaternion), new THREE.Vector3(...m.scale)
+  );
 
   // Alterna Tela Cheia
   const toggleFullscreen = () => {
@@ -189,7 +221,13 @@ export default function ScanPlanner() {
 
         const id = Date.now() + Math.random();
         const role = guessRole(f.name);
+        let archFrame = null;
+        if (role === 'inferior' || role === 'superior') {
+          try { archFrame = computeArchFrame(geo); } catch { archFrame = null; }
+        }
+        const saved = savedTransformsRef.current[f.name];
         const newModel = {
+          archFrame,
           id,
           name: f.name,
           role,
@@ -199,8 +237,8 @@ export default function ScanPlanner() {
           visible: true,
           opacity: 1,
           color: roleInfo(role).color,
-          position: [0, 0, 0],
-          quaternion: [0, 0, 0, 1],
+          position: saved?.position || [0, 0, 0],
+          quaternion: saved?.quaternion || [0, 0, 0, 1],
           scale: [1, 1, 1],
         };
 
@@ -216,7 +254,7 @@ export default function ScanPlanner() {
     if (zipOrDcmFiles.length > 0) {
       setProgress({ active: true, percent: 10, message: 'Processando tomografia...' });
       try {
-        const vol = await loadDicomFiles(zipOrDcmFiles, (p) => {
+        const vol = await loadDicomInWorker(zipOrDcmFiles, (p) => {
           setProgress({ active: true, percent: p.percent, message: p.message });
         });
 
@@ -237,7 +275,7 @@ export default function ScanPlanner() {
         toast(`Tomografia carregada! ${vol.slicesCount} fatias (${vol.dims.join(' × ')} voxels @ 0.4mm)`, 'success');
 
         // Gera automaticamente a superfície do osso 3D no próprio navegador
-        rebuildBoneMesh(vol, 400);
+        rebuildBoneMesh(vol, boneThreshold);
       } catch (err) {
         toast(`Erro na tomografia: ${err.message}`, 'error');
       } finally {
@@ -254,9 +292,9 @@ export default function ScanPlanner() {
     setIsExtractingBone(true);
     setProgress({ active: true, percent: 60, message: 'Extraindo osso 3D no navegador...' });
 
-    setTimeout(() => {
+    (async () => {
       try {
-        const { positions, normals, vertexCount } = generateBoneIsosurface(volData, threshold, 2);
+        const { positions, normals, vertexCount } = await boneInWorker(volData, threshold, 2);
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
@@ -269,26 +307,92 @@ export default function ScanPlanner() {
         setIsExtractingBone(false);
         setProgress({ active: false, percent: 0, message: '' });
       }
-    }, 50);
+    })();
   }, [toast]);
 
   // Atualização de Threshold do Osso via Slider
-  const handleThresholdChange = (val) => {
-    setBoneThreshold(val);
-    if (volume) rebuildBoneMesh(volume, val);
+  const commitThreshold = () => {
+    if (volume && !isExtractingBone) rebuildBoneMesh(volume, boneThreshold);
+  };
+
+  // Modelo que será alinhado: o selecionado (se for arcada) ou a primeira arcada
+  const regModel = models.find((m) => m.id === selModelId && m.role !== 'osso') ||
+    models.find((m) => m.role === 'inferior' || m.role === 'superior');
+
+  const handleRefine = async () => {
+    if (!regModel || !boneGeometry) {
+      toast('Abra a tomografia e um STL antes de refinar.', 'warn');
+      return null;
+    }
+    await new Promise((res) => setTimeout(res, 30));
+    try {
+      const pos = regModel.geometry.attributes.position;
+      const step = Math.max(1, Math.floor(pos.count / 5000));
+      const mat = modelMatrix(regModel);
+      const src = [];
+      const v = new THREE.Vector3();
+      for (let i = 0; i < pos.count; i += step) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(mat);
+        src.push(v.x, v.y, v.z);
+      }
+      const r = icpRefine(new Float32Array(src), boneGeometry.attributes.position.array);
+      applyTransformToModel(regModel.id, r.transform);
+      toast(`Encaixe refinado: ${r.rmsBefore.toFixed(2)} → ${r.rmsAfter.toFixed(2)} mm`, r.rmsAfter < 0.8 ? 'success' : 'warn');
+      return r;
+    } catch (err) {
+      toast(err.message, 'error');
+      return null;
+    }
+  };
+
+  // Gizmo solto: grava nova posição de modelo ou implante
+  const handleTransformChange = ({ kind, id, position, quaternion }) => {
+    if (kind === 'model') {
+      setModels((prev) => prev.map((m) => (m.id === id ? { ...m, position, quaternion } : m)));
+    } else if (kind === 'implant') {
+      const axis = new THREE.Vector3(0, -1, 0).applyQuaternion(new THREE.Quaternion(...quaternion)).normalize();
+      setImplants((prev) => prev.map((i) => (i.id === id ? {
+        ...i, pos: position, axis: axis.toArray(),
+        tilt: THREE.MathUtils.radToDeg(axis.angleTo(new THREE.Vector3(...(i.refAxis || [0, 0, -1])))),
+      } : i)));
+    }
+  };
+
+  // Exporta STL: modelo da arcada + anilhas metálicas nos implantes
+  const exportGuideStl = () => {
+    if (!implants.length) { toast('Posicione ao menos um implante antes de exportar.', 'warn'); return; }
+    const group = new THREE.Group();
+    if (regModel) {
+      const g = regModel.geometry.clone();
+      g.applyMatrix4(modelMatrix(regModel));
+      group.add(new THREE.Mesh(g));
+    }
+    implants.forEach((imp) => {
+      const pts = [
+        new THREE.Vector2(guideParams.hole_d / 2, 0), new THREE.Vector2(guideParams.sleeve_od / 2, 0),
+        new THREE.Vector2(guideParams.sleeve_od / 2, guideParams.sleeve_h), new THREE.Vector2(guideParams.hole_d / 2, guideParams.sleeve_h),
+        new THREE.Vector2(guideParams.hole_d / 2, 0),
+      ];
+      const ring = new THREE.LatheGeometry(pts, 32);
+      const m = new THREE.Mesh(ring);
+      // anilha 2 mm acima da plataforma, seguindo o eixo do implante
+      const axis = new THREE.Vector3(...(imp.axis || [0, 0, -1])).normalize();
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis.clone().negate());
+      m.position.copy(new THREE.Vector3(...imp.pos).addScaledVector(axis, -2));
+      group.add(m);
+    });
+    group.updateMatrixWorld(true);
+    const data = new STLExporter().parse(group, { binary: true });
+    const pat = state.patients.find((p) => p.id === patientId);
+    saveBlob(data, `guia_${(pat?.name || 'paciente').replace(/\s+/g, '_')}.stl`, 'model/stl');
+    toast('Arquivo STL do guia exportado (modelo + anilhas).', 'success');
   };
 
   // ---------------------------------------------------------------------------
   // Alinhamento Rígido por Pontos (Kabsch SVD)
   // ---------------------------------------------------------------------------
   const handleApplyTransform = (transformMatrix) => {
-    if (!selModelId) {
-      // Se nenhum selecionado, aplica ao primeiro modelo STL
-      const target = models.find((m) => m.role === 'inferior' || m.role === 'superior');
-      if (target) applyTransformToModel(target.id, transformMatrix);
-      return;
-    }
-    applyTransformToModel(selModelId, transformMatrix);
+    if (regModel) applyTransformToModel(regModel.id, transformMatrix);
   };
 
   const applyTransformToModel = (modelId, transformMatrix) => {
@@ -351,8 +455,15 @@ export default function ScanPlanner() {
     // 2. Seleção de Dente (ToothPicker com FDI Estimado)
     if (tool === 'dente') {
       const model = models.find((m) => m.id === hit.object.userData.modelId);
-      const archRole = model?.role || 'inferior';
+      const archRole = model?.role === 'superior' ? 'superior' : 'inferior';
+      let suggested = null;
+      if (model?.archFrame) {
+        const local = hit.point.clone().applyMatrix4(modelMatrix(model).invert());
+        suggested = estimateFdiFromFrame(local, model.archFrame, archRole);
+      }
       setSelectedToothPoint({
+        suggested,
+        modelId: model?.id,
         point: hit.point,
         normal: hit.normal || new THREE.Vector3(0, 0, 1),
         screenPos,
@@ -363,12 +474,19 @@ export default function ScanPlanner() {
 
     // 3. Posicionamento de Implante Direto
     if (tool === 'implante') {
-      placeImplantAtPoint(hit.point, hit.normal);
+      placeImplantAtPoint(hit.point, hit.normal, null, models.find((m) => m.id === hit.object.userData.modelId));
     }
   };
 
   // Adiciona Implante 3D
-  const placeImplantAtPoint = (point, normal = new THREE.Vector3(0, 0, 1), toothNum = null) => {
+  const placeImplantAtPoint = (point, normal = new THREE.Vector3(0, 0, 1), toothNum = null, model = null) => {
+    // Eixo apical: contrário ao plano oclusal do arco (não à inclinação da cúspide)
+    let apical = normal.clone().negate().normalize();
+    if (model?.archFrame) {
+      apical = new THREE.Vector3(...model.archFrame.occlusal)
+        .applyQuaternion(new THREE.Quaternion(...model.quaternion))
+        .negate().normalize();
+    }
     const newImp = {
       id: Date.now() + Math.random(),
       label: toothNum ? `Implante #${toothNum}` : `Implante ${implants.length + 1}`,
@@ -376,8 +494,9 @@ export default function ScanPlanner() {
       diameter: implantDef.diameter,
       length: implantDef.length,
       pos: point.toArray(),
-      axis: normal.toArray(),
-      tilt: THREE.MathUtils.radToDeg(Math.acos(Math.min(1, Math.abs(normal.z)))),
+      axis: apical.toArray(),
+      refAxis: apical.toArray(),
+      tilt: 0,
     };
     setImplants((prev) => [...prev, newImp]);
     setSelImplantId(newImp.id);
@@ -392,6 +511,11 @@ export default function ScanPlanner() {
     }
     const pat = state.patients.find((p) => p.id === patientId);
     const now = todayISO();
+    const proc = PROCEDURES.find((p) => p.id === procedureId);
+    const condition = proc?.condition || 'implante';
+    const already = (state.odontogram?.[patientId]?.[tooth] || []).some((e) => e.condition === condition && e.status === 'planejado');
+    if (already && !window.confirm(`O dente #${tooth} já tem "${condition}" planejado no prontuário. Marcar de novo?`)) return;
+    const prof = state.professionals?.find((p) => p.name === user?.name) || state.professionals?.[0];
 
     // 1. Marca no Odontograma 2D
     dispatch({
@@ -400,7 +524,7 @@ export default function ScanPlanner() {
       tooth,
       entry: {
         id: uid('od'),
-        condition: 'implante',
+        condition,
         faces: [],
         status: 'planejado',
         date: now,
@@ -423,7 +547,7 @@ export default function ScanPlanner() {
       evo: {
         id: uid('ev'),
         patientId,
-        professionalId: 'pr1',
+        professionalId: prof?.id || 'pr1',
         date: now,
         text: `[Planejamento Tomográfico & Scan 3D — Dente #${tooth} (${toothName(tooth)})]\n${clinicalNotes}`,
       },
@@ -431,7 +555,7 @@ export default function ScanPlanner() {
 
     // 4. Se solicitado, posiciona o implante 3D no modelo exatamente no ponto do clique
     if (placeImplant && hitPoint) {
-      placeImplantAtPoint(hitPoint, hitNormal, tooth);
+      placeImplantAtPoint(hitPoint, hitNormal, tooth, models.find((m) => m.id === selectedToothPoint?.modelId));
     }
 
     toast(`Dente #${tooth} registrado no prontuário de ${pat?.name}!`, 'success');
@@ -539,7 +663,7 @@ export default function ScanPlanner() {
       {/* Barra de Progresso / Loading */}
       {progress.active && (
         <div style={{ background: 'var(--surface-2)', padding: '6px 12px', borderRadius: 6, border: '1px solid var(--brand)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginBottom: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginBottom: 4, color: 'var(--text)' }}>
             <span>{progress.message}</span>
             <strong>{progress.percent}%</strong>
           </div>
@@ -641,6 +765,7 @@ export default function ScanPlanner() {
                 isMaximized={expandedQuadrant === '3d'}
                 onToggleMaximize={(q) => setExpandedQuadrant((cur) => (cur === q ? null : q))}
                 onSceneClick={handleSceneClick}
+                onTransformChange={handleTransformChange}
                 registrationPoints={registrationPoints}
                 isRegistering={isRegistering || tool === 'alinhamento'}
               />
@@ -801,7 +926,10 @@ export default function ScanPlanner() {
                       step={25}
                       value={boneThreshold}
                       style={{ width: '100%' }}
-                      onChange={(e) => handleThresholdChange(parseInt(e.target.value, 10))}
+                      onChange={(e) => setBoneThreshold(parseInt(e.target.value, 10))}
+                      onPointerUp={commitThreshold}
+                      onKeyUp={commitThreshold}
+                      disabled={isExtractingBone}
                     />
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--text-3)' }}>
                       <span>Tecido Mole (200 HU)</span>
@@ -846,7 +974,8 @@ export default function ScanPlanner() {
             {/* ABA 3: ALINHAMENTO RÍGIDO (KABSCH / SVD) */}
             {tab === 'alinhamento' && (
               <RegistrationPanel
-                stlModel={models.find((m) => m.role === 'inferior' || m.role === 'superior')}
+                stlModel={regModel}
+                onRefine={handleRefine}
                 boneModel={boneGeometry}
                 onApplyTransform={handleApplyTransform}
                 onResetTransform={handleResetTransform}
@@ -887,6 +1016,21 @@ export default function ScanPlanner() {
                   onClick={() => setTool('implante')}
                 >
                   <Crosshair size={14} /> Clique no Modelo para Posicionar
+                </button>
+
+                {selImplantId && (
+                  <div style={{ ...S.row, marginTop: 8 }}>
+                    <button style={S.btn(gizmoMode === 'translate')} onClick={() => setGizmoMode('translate')}><Move size={13} /> Mover</button>
+                    <button style={S.btn(gizmoMode === 'rotate')} onClick={() => setGizmoMode('rotate')}><RotateCw size={13} /> Inclinar</button>
+                  </div>
+                )}
+
+                <button
+                  style={{ ...S.btn(false), width: '100%', justifyContent: 'center', marginTop: 8 }}
+                  onClick={exportGuideStl}
+                  title="Gera um STL com a arcada alinhada e as anilhas posicionadas"
+                >
+                  <Download size={14} /> Exportar STL (modelo + anilhas)
                 </button>
 
                 <div style={S.label}>Implantes Planejados ({implants.length})</div>
