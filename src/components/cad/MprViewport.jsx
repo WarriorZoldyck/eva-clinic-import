@@ -253,8 +253,8 @@ export default function MprViewport({
           flexDirection: 'column',
           position: 'relative',
           overflow: 'hidden',
-          minHeight: 180,
-          flex: 1,
+          minHeight: 0,
+          minWidth: 0,
         }}
         onMouseUp={handleMouseUp}
       >
@@ -339,12 +339,7 @@ export default function MprViewport({
   return (
     <div
       style={{
-        display: 'grid',
-        gridTemplateColumns: expandedQuadrant ? '1fr' : '1fr 1fr',
-        gridTemplateRows: expandedQuadrant ? '1fr' : '1fr 1fr',
-        gap: 8,
-        height: '100%',
-        width: '100%',
+        display: 'contents',
       }}
     >
       {(!expandedQuadrant || expandedQuadrant === 'axial') &&

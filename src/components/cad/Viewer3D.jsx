@@ -65,7 +65,7 @@ export default function Viewer3D({
 
     const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 2500);
     camera.up.set(0, 0, 1);
-    camera.position.set(0, -140, 100);
+    camera.position.set(0, -230, 150);
     scene.add(camera);
 
     scene.add(new THREE.HemisphereLight('#ffffff', '#334155', 0.8));
@@ -423,7 +423,7 @@ export default function Viewer3D({
 
   const setViewAngle = (view) => {
     if (!E.camera || !E.controls) return;
-    const dist = 140;
+    const dist = 230;
     if (view === 'oclusal') E.camera.position.set(0, 0, dist);
     else if (view === 'frontal') E.camera.position.set(0, -dist, 0);
     else if (view === 'esquerda') E.camera.position.set(-dist, 0, 0);

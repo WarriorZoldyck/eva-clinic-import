@@ -112,7 +112,7 @@ export default function ScanPlanner() {
 
   // Estados do Osso 3D em JavaScript local (Marching Cubes)
   const [boneGeometry, setBoneGeometry] = useState(null);
-  const [boneThreshold, setBoneThreshold] = useState(400);
+  const [boneThreshold, setBoneThreshold] = useState(700);
   const [boneOpacity, setBoneOpacity] = useState(0.85);
   const [isExtractingBone, setIsExtractingBone] = useState(false);
 
@@ -275,7 +275,7 @@ export default function ScanPlanner() {
         toast(`Tomografia carregada! ${vol.slicesCount} fatias (${vol.dims.join(' × ')} voxels @ 0.4mm)`, 'success');
 
         // Gera automaticamente a superfície do osso 3D no próprio navegador
-        rebuildBoneMesh(vol, 400);
+        rebuildBoneMesh(vol, boneThreshold);
       } catch (err) {
         toast(`Erro na tomografia: ${err.message}`, 'error');
       } finally {
@@ -663,7 +663,7 @@ export default function ScanPlanner() {
       {/* Barra de Progresso / Loading */}
       {progress.active && (
         <div style={{ background: 'var(--surface-2)', padding: '6px 12px', borderRadius: 6, border: '1px solid var(--brand)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginBottom: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, marginBottom: 4, color: 'var(--text)' }}>
             <span>{progress.message}</span>
             <strong>{progress.percent}%</strong>
           </div>
