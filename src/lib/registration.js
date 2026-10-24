@@ -222,3 +222,65 @@ export function computeKabschAlignment(pointsP, pointsQ) {
     errorMm: meanErrorMm,
   };
 }
+
+/**
+ * Refinamento automático (ICP ponto-a-ponto) do STL sobre a superfície do osso/dentes da TC.
+ * @param {Float32Array} sourceWorld - pontos do STL já no espaço do mundo (x,y,z...)
+ * @param {Float32Array} targetPositions - posições da malha do osso (espaço do mundo)
+ * @returns {{ transform: THREE.Matrix4, rmsBefore: number, rmsAfter: number, pairs: number }}
+ */
+export function icpRefine(sourceWorld, targetPositions, { iterations = 25, maxDist = 3, cell = 2 } = {}) {
+  // Grade espacial dos pontos-alvo (subamostrados)
+  const grid = new Map();
+  const tStep = Math.max(1, Math.floor(targetPositions.length / 3 / 300000));
+  const key = (x, y, z) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
+  for (let i = 0; i < targetPositions.length; i += 3 * tStep) {
+    const k = key(targetPositions[i], targetPositions[i + 1], targetPositions[i + 2]);
+    let arr = grid.get(k);
+    if (!arr) grid.set(k, (arr = []));
+    arr.push(i);
+  }
+  const reach = Math.ceil(maxDist / cell);
+  const nearest = (x, y, z) => {
+    const cx = Math.floor(x / cell), cy = Math.floor(y / cell), cz = Math.floor(z / cell);
+    let best = -1, bestD = maxDist * maxDist;
+    for (let a = -reach; a <= reach; a++) for (let b = -reach; b <= reach; b++) for (let c = -reach; c <= reach; c++) {
+      const arr = grid.get(`${cx + a},${cy + b},${cz + c}`);
+      if (!arr) continue;
+      for (const i of arr) {
+        const dx = targetPositions[i] - x, dy = targetPositions[i + 1] - y, dz = targetPositions[i + 2] - z;
+        const d = dx * dx + dy * dy + dz * dz;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+    }
+    return best >= 0 ? { i: best, d: bestD } : null;
+  };
+
+  const n = sourceWorld.length / 3;
+  const pts = [];
+  for (let i = 0; i < n; i++) pts.push(new THREE.Vector3(sourceWorld[i * 3], sourceWorld[i * 3 + 1], sourceWorld[i * 3 + 2]));
+
+  const total = new THREE.Matrix4();
+  let rmsBefore = null, rms = 0, pairs = 0;
+  for (let it = 0; it < iterations; it++) {
+    const P = [], Q = [];
+    let sum = 0;
+    for (const p of pts) {
+      const nn = nearest(p.x, p.y, p.z);
+      if (!nn) continue;
+      P.push(p);
+      Q.push(new THREE.Vector3(targetPositions[nn.i], targetPositions[nn.i + 1], targetPositions[nn.i + 2]));
+      sum += nn.d;
+    }
+    if (P.length < 10) break;
+    rms = Math.sqrt(sum / P.length);
+    pairs = P.length;
+    if (rmsBefore === null) rmsBefore = rms;
+    const { transform } = computeKabschAlignment(P, Q);
+    pts.forEach((p) => p.applyMatrix4(transform));
+    total.premultiply(transform);
+    if (rms < 0.05) break;
+  }
+  if (rmsBefore === null) throw new Error('O STL está longe demais da tomografia. Faça primeiro o alinhamento por pontos.');
+  return { transform: total, rmsBefore, rmsAfter: rms, pairs };
+}
