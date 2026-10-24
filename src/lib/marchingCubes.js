@@ -52,8 +52,15 @@ export function generateBoneIsosurface(volume, thresholdHu = 400, step = 2) {
   };
 
   // Buffer dinâmico de triângulos
-  const posArr = [];
-  const normArr = [];
+  let cap = 1 << 20;
+  let posArr = new Float32Array(cap);
+  let normArr = new Float32Array(cap);
+  let n = 0;
+  const grow = () => {
+    cap *= 2;
+    const p2 = new Float32Array(cap); p2.set(posArr); posArr = p2;
+    const n2 = new Float32Array(cap); n2.set(normArr); normArr = n2;
+  };
 
   const cornerOffsets = [
     [0, 0, 0],
@@ -131,20 +138,21 @@ export function generateBoneIsosurface(volume, thresholdHu = 400, step = 2) {
           const n1 = edgeNorms[e1];
           const n2 = edgeNorms[e2];
 
-          posArr.push(p0[0], p0[1], p0[2]);
-          posArr.push(p1[0], p1[1], p1[2]);
-          posArr.push(p2[0], p2[1], p2[2]);
-
-          normArr.push(n0[0], n0[1], n0[2]);
-          normArr.push(n1[0], n1[1], n1[2]);
-          normArr.push(n2[0], n2[1], n2[2]);
+          if (n + 9 > cap) grow();
+          posArr[n] = p0[0]; posArr[n + 1] = p0[1]; posArr[n + 2] = p0[2];
+          posArr[n + 3] = p1[0]; posArr[n + 4] = p1[1]; posArr[n + 5] = p1[2];
+          posArr[n + 6] = p2[0]; posArr[n + 7] = p2[1]; posArr[n + 8] = p2[2];
+          normArr[n] = n0[0]; normArr[n + 1] = n0[1]; normArr[n + 2] = n0[2];
+          normArr[n + 3] = n1[0]; normArr[n + 4] = n1[1]; normArr[n + 5] = n1[2];
+          normArr[n + 6] = n2[0]; normArr[n + 7] = n2[1]; normArr[n + 8] = n2[2];
+          n += 9;
         }
       }
     }
   }
 
-  const positions = new Float32Array(posArr);
-  const normals = new Float32Array(normArr);
+  const positions = posArr.slice(0, n);
+  const normals = normArr.slice(0, n);
 
   return {
     positions,
