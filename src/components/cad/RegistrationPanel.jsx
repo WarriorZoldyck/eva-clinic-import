@@ -20,7 +20,20 @@ export default function RegistrationPanel({
   bonePoints = [],
   onClearPoints,
   toast = () => {},
+  onRefine,
 }) {
+  const [icpResult, setIcpResult] = useState(null);
+  const [refining, setRefining] = useState(false);
+  const runRefine = async () => {
+    if (!onRefine) return;
+    setRefining(true);
+    try {
+      const r = await onRefine();
+      if (r) setIcpResult(r);
+    } finally {
+      setRefining(false);
+    }
+  };
   const [alignmentResult, setAlignmentResult] = useState(null);
 
   const handleCompute = () => {
@@ -30,6 +43,10 @@ export default function RegistrationPanel({
     }
 
     try {
+      if (stlPoints.length !== bonePoints.length) {
+        const diff = Math.abs(stlPoints.length - bonePoints.length);
+        toast(`Faltam ${diff} ponto(s) ${stlPoints.length > bonePoints.length ? 'na tomografia' : 'no STL'}. Usando só os pares completos.`, 'warn');
+      }
       const vecP = stlPoints.map((p) => new THREE.Vector3(...p.pos));
       const vecQ = bonePoints.map((p) => new THREE.Vector3(...p.pos));
 
@@ -210,6 +227,24 @@ export default function RegistrationPanel({
           <RotateCcw size={13} /> Eixo Zero
         </button>
       </div>
+
+      <button
+        onClick={runRefine}
+        disabled={refining || !boneModel}
+        title="Encaixe fino do STL sobre a superfície da tomografia (ICP)"
+        style={{
+          marginTop: 8, width: '100%', padding: '8px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+          cursor: refining || !boneModel ? 'not-allowed' : 'pointer', opacity: refining || !boneModel ? 0.5 : 1,
+          border: '1px solid var(--brand)', background: 'var(--brand-soft)', color: 'var(--brand)',
+        }}
+      >
+        {refining ? 'Refinando...' : 'Refinar automaticamente (ICP)'}
+      </button>
+      {icpResult && (
+        <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--text-2)' }}>
+          Distância média à tomografia: {icpResult.rmsBefore.toFixed(2)} mm → <strong>{icpResult.rmsAfter.toFixed(2)} mm</strong> ({icpResult.pairs} pontos)
+        </div>
+      )}
     </div>
   );
 }
