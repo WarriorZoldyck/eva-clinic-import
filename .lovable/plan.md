@@ -1,61 +1,60 @@
-# Guia Cirúrgico estilo exoplan — tomografia + STL no mesmo espaço
+# Revisão do Guia Cirúrgico — o que falta e o que corrigir
 
-## O que os seus arquivos mostram
-- **Tomografia (dicon_EVA.zip, 197 MB):** exportação de tomógrafo Vatech. São 448 arquivos `.dcm`, um por fatia (o "quebra-cabeça"). Cada fatia tem 600x600 pixels de 0,2 mm, e as fatias ficam a 0,2 mm uma da outra: um bloco de 12 x 12 x 9 cm. As fatias vêm em ordem invertida (a primeira é a de cima), e a ordem certa vem da posição gravada em cada uma. O ZIP também traz pastas `Cache`, `Analyses` e arquivos `.xml/.npj`, que são do programa do tomógrafo e serão ignorados.
-- **Volume total:** cerca de 160 milhões de pontos (uns 320 MB de memória). No navegador, a tomografia é reduzida para 0,4 mm (300x300x224), o que basta para planejar e não trava a tela.
-- **STLs (CEREC/inLab):** arcada inferior (818 mil triângulos) e superior (622 mil), em milímetros, mas em outro sistema de posição: o scanner não "sabe" onde a tomografia está. Por isso o alinhamento por pontos (item 4) é obrigatório, e não opcional. Para o alinhamento ficar rápido, uso uma cópia simplificada da malha no cálculo e mostro a original na tela.
+Revisei a tela do Guia Cirúrgico e as peças dela (leitura da tomografia, 4 quadrantes, osso 3D, alinhamento, seleção de dente). A base existe, mas vários pontos ainda não funcionam como no exocad/exoplan.
 
-## Problemas atuais
-- A tomografia só aparece como cortes 2D; o osso 3D depende de um servidor externo que não está ligado, então STL e tomografia nunca ficam juntos no 3D.
-- Pastas com centenas de arquivos .dcm (ou ZIP) são lidas, mas a ordem/espaçamento pode ficar errada e travar em exames grandes.
-- "Marcar no prontuário" abre um formulário onde você digita o dente manualmente — não usa o clique no modelo.
+## Problemas confirmados (por prioridade)
 
-## O que vai mudar
+### 1. Tela trava ao abrir a tomografia
+- O ZIP inteiro (197 MB) e as 448 fatias são lidos na tela principal, sem trabalho em segundo plano. O navegador congela por vários segundos e pode fechar a aba.
+- O osso 3D também é calculado na tela principal, e de novo a cada movimento do controle de densidade (sem espera), travando a cada ajuste.
+- Correção: leitura e cálculo do osso em segundo plano, com barra de progresso real, e o osso só recalcula quando você solta o controle.
 
-### 1. Leitura da tomografia
-- Aceitar: pasta inteira, vários .dcm, ou ZIP (inclusive ZIP com subpastas e arquivos sem extensão).
-- Trocar o leitor caseiro pelas bibliotecas `jszip` e `dicom-parser` (mais confiáveis com tomógrafos diferentes).
-- Ordenar fatias pela posição real do paciente; calcular o espaçamento entre elas.
-- Exames grandes (mais de 300 fatias ou 512px) são reduzidos automaticamente para não travar; barra de progresso durante a leitura.
+### 2. Tomografias de outros aparelhos podem abrir em branco ou erradas
+- Tomografias compactadas internamente (comuns em alguns tomógrafos) não são lidas: aparece imagem "chuviscada".
+- A ordem das fatias usa só a altura, sem considerar a inclinação do exame; o espaçamento é a média, não o real.
+- Correção: avisar com mensagem clara quando o formato não é suportado, e usar a orientação real do exame.
 
-### 2. Tela em 4 quadrantes (padrão exoplan)
-```text
-+-------------+-------------+
-|   Axial     |  Coronal    |
-+-------------+-------------+
-|  Sagital    |  3D         |
-+-------------+-------------+
-```
-- Cada corte com slider e rolagem do mouse; linhas cruzadas sincronizadas (clicar num corte move os outros dois).
-- Botão para maximizar qualquer quadrante.
-- Presets de janela (osso, dente, tecido mole) já existentes.
+### 3. Alinhamento STL x tomografia está incompleto
+- Só existe o cálculo pelos pontos marcados. O refinamento automático (encaixe fino da malha sobre o osso) prometido não foi feito.
+- Os pontos podem ficar com quantidades diferentes no STL e na tomografia sem aviso claro de qual par está faltando.
+- Correção: adicionar o refinamento automático depois dos pontos, mostrar o erro em mm antes/depois e numerar os pares na tela.
 
-### 3. Osso 3D da tomografia no próprio navegador
-- Gerar a superfície do osso direto no navegador (sem servidor), com controle de densidade para esconder tecido mole.
-- Os 3 planos de corte aparecem dentro do 3D junto do STL.
-- Osso e STL compartilham as mesmas coordenadas em milímetros.
+### 4. Implante só aparece no corte axial
+- Nos cortes coronal e sagital o implante não é desenhado.
+- No axial ele é desenhado sempre reto, mesmo se você inclinar o implante.
+- Ao ser colocado, o implante segue a inclinação da superfície clicada (a ponta do dente), e não o eixo do osso, então nasce torto.
+- Correção: desenhar o implante inclinado corretamente nos 3 cortes, nascer apontando para o osso, e permitir ajustar inclinação também pelos cortes.
 
-### 4. Alinhamento STL x Tomografia por pontos
-- Botão "Alinhar STL à tomografia": marcar 3+ pontos no STL (cúspides) e os mesmos pontos no osso/cortes.
-- Cálculo do alinhamento rígido a partir dos pares de pontos, seguido de refinamento automático (ICP) sobre a superfície.
-- Mostrar o erro médio em mm; botões desfazer e "resetar para o eixo zero".
+### 5. Clique no dente sugere o número errado
+- A sugestão do dente parte do princípio de que o centro do arco está no meio da cena. Arquivos CEREC chegam em outra posição, então a sugestão fica errada até o alinhamento ser feito.
+- Correção: calcular o centro e a frente do arco a partir do próprio arquivo STL; manter sempre a confirmação no mini-odontograma.
 
-### 5. Implantes
-- "Adicionar implante" cria implante + anilha metálica, com gizmo de mover/girar.
-- Comprimento (8.5 / 10 / 11.5 / 13 mm) e diâmetro (3.5 / 4.3 / 5.0 mm) no painel lateral.
-- O implante aparece desenhado nos três cortes 2D, acompanhando a posição.
+### 6. Marcação no prontuário
+- A evolução é gravada sempre no nome de um profissional fixo, não de quem está usando.
+- O procedimento é sempre registrado como "implante" no odontograma, mesmo se você escolher outro.
+- Correção: usar o profissional logado e o procedimento escolhido; impedir marcar duas vezes o mesmo dente sem aviso.
 
-### 6. Clicar no dente do arquivo para marcar no odontograma
-- Ferramenta "Selecionar dente": clicar no dente do STL (ou do osso).
-- O sistema sugere o número do dente (FDI) pela posição no arco, com um mini-odontograma para confirmar ou corrigir com um clique.
-- Ao confirmar: o dente fica marcado no modelo e no odontograma do paciente, com o procedimento escolhido (ex.: implante), e o implante pode ser posicionado já naquele ponto.
-- O botão "Marcar no prontuário" atual é substituído por esse fluxo.
+### 7. Planejamento não é salvo
+- Ao sair da tela, modelos, alinhamento e implantes são perdidos.
+- Correção: salvar o planejamento por paciente (posição dos implantes e alinhamento), sem reenviar os arquivos pesados.
+
+### 8. Exportar o guia
+- A tela tenta falar com um servidor externo para gerar o guia; ele não existe aqui, então o botão não faz nada útil.
+- Correção: gerar no próprio navegador um STL com o modelo + anilhas posicionadas (o desenho completo da placa do guia fica para uma próxima etapa).
+
+## Ordem de execução
+1. Itens 1 e 2 (abrir a tomografia sem travar)
+2. Item 4 (implante nos 3 cortes)
+3. Item 3 (alinhamento com refinamento)
+4. Itens 5 e 6 (dente e prontuário)
+5. Itens 7 e 8 (salvar e exportar)
+
+Cada etapa é testada com o seu `dicon_EVA.zip` e os dois STL.
 
 ## Detalhes técnicos
-- Arquivos: `src/pages/ScanPlanner.jsx` (rota `/guia-cirurgico`), dividido em componentes novos: `MprViewport`, `Viewer3D`, `RegistrationPanel`, `ToothPicker`.
-- Libs novas: `jszip`, `dicom-parser`. Leitura em Web Worker para não travar a tela.
-- Superfície óssea: marching cubes em JS num worker, sobre volume reduzido (passo 2 se necessário), limite de triângulos.
-- Alinhamento: Kabsch/SVD para os pares de pontos + ICP ponto-a-ponto com amostragem e k-d tree simples.
-- FDI estimado: ângulo do clique em torno do centro do arco + lado (arcada sup./inf. definida pelo tipo do modelo), sempre com confirmação manual.
-- Mantém o design atual (vidro/escuro-claro). Pastas `cad_engine` (Python) não rodam aqui; tudo passa a funcionar no navegador.
-- Limitação: o encaixe automático do número do dente é uma sugestão; precisão final depende da confirmação do usuário. Preciso de uma tomografia real sua para testar.
+- `dicomVolumeLoader.js` e `marchingCubes.js` passam a rodar em Web Workers; ZIP lido com `JSZip` em streaming; marching cubes com buffers tipados em vez de `push`; slider com debounce/onPointerUp.
+- Transfer Syntax (0002,0010): detectar JPEG/JPEG2000/RLE e mostrar erro; ordenar por projeção de ImagePositionPatient na normal de ImageOrientationPatient (0020,0037).
+- `registration.js`: adicionar ICP ponto-a-ponto com amostragem (~5k pontos) e grade espacial/k-d tree contra a malha do osso.
+- `MprViewport.jsx`: projetar o segmento do implante (pos + axis * length) e intersectar com cada plano; nascer com eixo oposto à normal oclusal do arco.
+- `ToothPicker.jsx`: centro/orientação do arco via PCA dos vértices do modelo (no frame local do modelo).
+- `ScanPlanner.jsx`: `professionalId` do usuário logado, condição do odontograma derivada do procedimento; remover checagem do CAD Server; persistir plano via ação no AppContext.
