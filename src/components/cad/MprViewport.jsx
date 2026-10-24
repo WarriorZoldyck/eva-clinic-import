@@ -66,31 +66,7 @@ export default function MprViewport({
       ctx.stroke();
     }
 
-    // Projeção dos implantes no corte Axial
-    implants.forEach((imp) => {
-      const impVoxelX = Math.round(W / 2 + imp.pos[0] / dx);
-      const impVoxelY = Math.round(H / 2 - imp.pos[1] / dy);
-      const impVoxelZ = Math.round(D / 2 + imp.pos[2] / dz);
-
-      // Se a fatia axial atual estiver dentro da extensão do implante
-      const zDistMm = Math.abs((slices.axial - impVoxelZ) * dz);
-      if (zDistMm <= imp.length) {
-        ctx.strokeStyle = '#fbbf24';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        const radiusVoxel = Math.max(3, (imp.diameter / 2) / dx);
-        ctx.arc(impVoxelX, impVoxelY, radiusVoxel, 0, Math.PI * 2);
-        ctx.stroke();
-
-        // Margem de segurança de 2 mm (linha pontilhada laranja)
-        ctx.strokeStyle = 'rgba(249, 115, 22, 0.5)';
-        ctx.setLineDash([3, 3]);
-        ctx.beginPath();
-        ctx.arc(impVoxelX, impVoxelY, radiusVoxel + 2 / dx, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-    });
+    drawImplantsOn(ctx, 'axial', slices.axial);
   }, [volume, slices.axial, crosshair, ww, wl, implants, W, H, D, dx, dy, dz]);
 
   // Renderiza Corte Coronal (Y)
@@ -121,7 +97,8 @@ export default function MprViewport({
       ctx.lineTo(W, D - crosshair.z - 0.5);
       ctx.stroke();
     }
-  }, [volume, slices.coronal, crosshair, ww, wl, W, D]);
+    drawImplantsOn(ctx, 'coronal', slices.coronal);
+  }, [volume, slices.coronal, crosshair, ww, wl, W, D, implants]);
 
   // Renderiza Corte Sagital (X)
   useEffect(() => {
@@ -151,7 +128,8 @@ export default function MprViewport({
       ctx.lineTo(H, D - crosshair.z - 0.5);
       ctx.stroke();
     }
-  }, [volume, slices.sagittal, crosshair, ww, wl, H, D]);
+    drawImplantsOn(ctx, 'sagittal', slices.sagittal);
+  }, [volume, slices.sagittal, crosshair, ww, wl, H, D, implants]);
 
   // Tratamento de Rolagem (Mouse Wheel) para navegar fatias
   const handleWheel = (e, plane) => {
