@@ -51,9 +51,7 @@ export default function ToothPicker({
   patients = [],
   selectedPatientId,
 }) {
-  if (!selectedPoint) return null;
-
-  const estimatedTooth = estimateFdiTooth(selectedPoint.point, selectedPoint.archRole);
+  const estimatedTooth = selectedPoint?.suggested || (selectedPoint ? estimateFdiTooth(selectedPoint.point, selectedPoint.archRole) : 11);
   const [tooth, setTooth] = useState(estimatedTooth);
   const [procedureId, setProcedureId] = useState('p_imp_1');
   const [clinicalNotes, setClinicalNotes] = useState(
@@ -61,14 +59,17 @@ export default function ToothPicker({
   );
 
   useEffect(() => {
-    const est = estimateFdiTooth(selectedPoint.point, selectedPoint.archRole);
+    if (!selectedPoint) return;
+    const est = selectedPoint.suggested || estimateFdiTooth(selectedPoint.point, selectedPoint.archRole);
     setTooth(est);
     setClinicalNotes(`Planejamento de implante no dente #${est} a partir de clique direto na malha e tomografia.`);
   }, [selectedPoint]);
 
+  if (!selectedPoint) return null;
+
   const archTeeth = selectedPoint.archRole === 'superior'
-    ? [...PERMANENT.upper[0].reverse(), ...PERMANENT.upper[1]]
-    : [...PERMANENT.lower[0].reverse(), ...PERMANENT.lower[1]];
+    ? [...[...PERMANENT.upper[0]].reverse(), ...PERMANENT.upper[1]]
+    : [...[...PERMANENT.lower[0]].reverse(), ...PERMANENT.lower[1]];
 
   const handleConfirm = (placeImplant = true) => {
     onConfirm({
