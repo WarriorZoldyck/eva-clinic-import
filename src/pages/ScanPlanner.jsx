@@ -29,6 +29,9 @@ import { computeArchFrame, estimateFdiFromFrame } from '../lib/archFrame';
 import { icpRefine } from '../lib/registration';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 import { useAuth } from '../store/AuthContext';
+import { loadDicomFiles } from '../lib/dicomVolumeLoader';
+import { generateBoneIsosurface } from '../lib/marchingCubes';
+import { buildSurgicalGuideWeb, SLEEVE_PRESETS } from '../lib/manifoldGuideEngine';
 import MprViewport from '../components/cad/MprViewport';
 import Viewer3D from '../components/cad/Viewer3D';
 import RegistrationPanel from '../components/cad/RegistrationPanel';
@@ -138,9 +141,6 @@ export default function ScanPlanner() {
   // Estados do ToothPicker (Clique no dente)
   const [selectedToothPoint, setSelectedToothPoint] = useState(null);
 
-  // Estados do Guia Cirúrgico (CAD)
-  const [guideParams, setGuideParams] = useState({ base: '', thickness: 2.5, gap: 0.1, hole_d: 5, sleeve_od: 7.5, sleeve_h: 5, radius: 14 });
-
   // ---------------------------------------------------------------------------
   // Planejamento salvo por paciente (implantes + posição dos modelos)
   // ---------------------------------------------------------------------------
@@ -178,6 +178,93 @@ export default function ScanPlanner() {
   const modelMatrix = (m) => new THREE.Matrix4().compose(
     new THREE.Vector3(...m.position), new THREE.Quaternion(...m.quaternion), new THREE.Vector3(...m.scale)
   );
+
+  // Estados do Guia Cirúrgico (WASM Manifold-3D nativo)
+  const [selectedKit, setSelectedKit] = useState('neodent_gm');
+  const [guideParams, setGuideParams] = useState({
+    hole_d: 5.0,
+    sleeve_od: 7.0,
+    sleeve_h: 5.0,
+    offset_platform: 9.0,
+    thickness: 2.5,
+    radius: 14.0,
+    inspection_windows: true,
+  });
+  const [isGeneratingGuide, setIsGeneratingGuide] = useState(false);
+  const [generatedGuideMeta, setGeneratedGuideMeta] = useState(null);
+
+  const handleSelectKit = (kitId) => {
+    setSelectedKit(kitId);
+    const preset = SLEEVE_PRESETS.find((p) => p.id === kitId);
+    if (preset) {
+      setGuideParams((prev) => ({
+        ...prev,
+        hole_d: preset.holeDiameter,
+        sleeve_od: preset.sleeveOD,
+        sleeve_h: preset.sleeveHeight,
+        offset_platform: preset.offsetPlatform,
+      }));
+    }
+  };
+
+  const handleGenerateGuideWasm = async () => {
+    if (!implants.length) {
+      toast('Posicione pelo menos 1 implante no modelo 3D antes de gerar o guia.', 'warn');
+      return;
+    }
+
+    setIsGeneratingGuide(true);
+    setProgress({ active: true, percent: 10, message: 'Iniciando motor CAD WebAssembly...' });
+
+    try {
+      const result = await buildSurgicalGuideWeb({
+        implants,
+        params: guideParams,
+        onProgress: (p) => {
+          setProgress({ active: true, percent: p.percent, message: p.message });
+        },
+      });
+
+      const guideId = 'surgical_guide_' + Date.now();
+      const guideModel = {
+        id: guideId,
+        name: `Guia Cirúrgico (${implants.length} anilha${implants.length > 1 ? 's' : ''})`,
+        role: 'guia',
+        geometry: result.geometry,
+        bytes: result.stlBuffer,
+        ext: 'stl',
+        visible: true,
+        opacity: 0.85,
+        color: '#38bdf8',
+        position: [0, 0, 0],
+        quaternion: [0, 0, 0, 1],
+        scale: [1, 1, 1],
+      };
+
+      // Substitui guia cirúrgico anterior na lista de modelos
+      setModels((prev) => [...prev.filter((m) => m.role !== 'guia'), guideModel]);
+      setSelModelId(guideId);
+      setGeneratedGuideMeta({
+        id: guideId,
+        volume_mm3: result.volume_mm3,
+        triangleCount: result.triangleCount,
+        vertexCount: result.vertexCount,
+        stlBuffer: result.stlBuffer,
+        timestamp: new Date().toLocaleTimeString(),
+      });
+
+      toast(
+        `Guia Cirúrgico gerado com sucesso no navegador! (${result.triangleCount.toLocaleString()} triângulos, ${result.volume_mm3} mm³)`,
+        'success'
+      );
+    } catch (err) {
+      console.error(err);
+      toast(`Erro ao gerar guia cirúrgico: ${err.message}`, 'error');
+    } finally {
+      setIsGeneratingGuide(false);
+      setProgress({ active: false, percent: 0, message: '' });
+    }
+  };
 
   // Alterna Tela Cheia
   const toggleFullscreen = () => {
@@ -777,7 +864,7 @@ export default function ScanPlanner() {
         <div style={{ ...S.panel, width: 330, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           {/* Abas */}
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
-            {[['modelos', 'Modelos'], ['tomografia', 'TC / Osso'], ['alinhamento', 'Alinhar'], ['implantes', 'Implantes']].map(([k, l]) => (
+            {[['modelos', 'Modelos'], ['tomografia', 'TC / Osso'], ['alinhamento', 'Alinhar'], ['implantes', 'Implantes'], ['guia', 'Guia 3D']].map(([k, l]) => (
               <button
                 key={k}
                 onClick={() => setTab(k)}
@@ -1069,6 +1156,142 @@ export default function ScanPlanner() {
                     </div>
                   </div>
                 ))}
+              </>
+            )}
+
+            {/* ABA 5: GUIA CIRÚRGICO 3D (WASM NATIVO) */}
+            {tab === 'guia' && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)' }}>MOTOR CAD WEB (100% LOCAL)</span>
+                  <span style={{ fontSize: 10, background: 'var(--brand-soft)', color: 'var(--brand)', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>
+                    WASM Manifold-3D
+                  </span>
+                </div>
+
+                <div style={S.label}>Kit Cirúrgico / Fabricante</div>
+                <select
+                  style={S.input}
+                  value={selectedKit}
+                  onChange={(e) => handleSelectKit(e.target.value)}
+                >
+                  {SLEEVE_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+
+                <div style={{ ...S.panel, padding: 10, background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5 }}>
+                    <span style={{ color: 'var(--text-2)' }}>Furo da Anilha (Broca):</span>
+                    <strong>{guideParams.hole_d.toFixed(1)} mm</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5 }}>
+                    <span style={{ color: 'var(--text-2)' }}>Diâmetro Externo:</span>
+                    <strong>{guideParams.sleeve_od.toFixed(1)} mm</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5 }}>
+                    <span style={{ color: 'var(--text-2)' }}>Altura da Anilha:</span>
+                    <strong>{guideParams.sleeve_h.toFixed(1)} mm</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5 }}>
+                    <span style={{ color: 'var(--text-2)' }}>Distância à Plataforma:</span>
+                    <strong>{guideParams.offset_platform.toFixed(1)} mm</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5 }}>
+                    <span style={{ color: 'var(--text-2)' }}>Espessura da Resina:</span>
+                    <strong>{guideParams.thickness.toFixed(1)} mm</strong>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, cursor: 'pointer', marginTop: 4 }}>
+                    <input
+                      type="checkbox"
+                      checked={guideParams.inspection_windows}
+                      onChange={(e) => setGuideParams((p) => ({ ...p, inspection_windows: e.target.checked }))}
+                    />
+                    <span>Janelas de inspeção vestibular</span>
+                  </label>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: implants.length ? '#052e16' : '#2a1a05', borderRadius: 6, border: `1px solid ${implants.length ? '#166534' : '#854d0e'}` }}>
+                  {implants.length ? (
+                    <>
+                      <Check size={14} style={{ color: '#22c55e' }} />
+                      <span style={{ fontSize: 12, color: '#86efac' }}>
+                        {implants.length} implante{implants.length > 1 ? 's' : ''} pronto{implants.length > 1 ? 's' : ''} para o guia
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle size={14} style={{ color: '#eab308' }} />
+                      <span style={{ fontSize: 11.5, color: '#fef08a' }}>
+                        Posicione implantes na aba "Implantes" primeiro.
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                <button
+                  style={{
+                    ...S.btn(true),
+                    width: '100%',
+                    justifyContent: 'center',
+                    padding: '10px 12px',
+                    fontSize: 13,
+                    opacity: !implants.length || isGeneratingGuide ? 0.5 : 1,
+                    cursor: !implants.length || isGeneratingGuide ? 'not-allowed' : 'pointer',
+                  }}
+                  disabled={!implants.length || isGeneratingGuide}
+                  onClick={handleGenerateGuideWasm}
+                >
+                  <Sparkles size={16} />
+                  {isGeneratingGuide ? 'Processando Booleana CSG...' : 'Gerar Guia no Navegador (WASM)'}
+                </button>
+
+                {generatedGuideMeta && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      padding: 12,
+                      borderRadius: 8,
+                      background: 'rgba(56, 189, 248, 0.08)',
+                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#38bdf8', fontWeight: 700, fontSize: 12.5 }}>
+                      <Check size={16} /> Guia Cirúrgico Estanque Gerado!
+                    </div>
+
+                    <div style={{ fontSize: 11.5, color: 'var(--text-2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                      <div>Triângulos: <strong>{generatedGuideMeta.triangleCount.toLocaleString()}</strong></div>
+                      <div>Volume: <strong>{generatedGuideMeta.volume_mm3} mm³</strong></div>
+                      <div>Resina aprox.: <strong>{(generatedGuideMeta.volume_mm3 / 1000).toFixed(1)} ml</strong></div>
+                      <div>Status: <strong>Válido / Manifold</strong></div>
+                    </div>
+
+                    <button
+                      style={{
+                        ...S.btn(true),
+                        width: '100%',
+                        justifyContent: 'center',
+                        background: 'var(--brand)',
+                        color: '#fff',
+                        marginTop: 4,
+                      }}
+                      onClick={() =>
+                        saveBlob(
+                          generatedGuideMeta.stlBuffer,
+                          `guia_cirurgico_implante_${Date.now()}.stl`,
+                          'application/octet-stream'
+                        )
+                      }
+                    >
+                      <Download size={14} /> Baixar Guia Cirúrgico (.STL)
+                    </button>
+                  </div>
+                )}
               </>
             )}
 
